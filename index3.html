@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>승강기 검색 서비스 - 실무 현장용</title>
+    <title>승강기 검색 서비스 - 현장 실무용 PRO</title>
     
     <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=59f58919246c9ac3780496fc7e2c0d74&libraries=services&autoload=false"></script>
     
@@ -23,30 +23,35 @@
         .recent-title { font-size: 13px; font-weight: bold; margin-bottom: 8px; display: flex; justify-content: space-between; color: #333; }
         .recent-tags { display: flex; gap: 6px; }
         .tag { background: #edf2f7; padding: 6px 12px; border-radius: 15px; font-size: 12px; color: #4a5568; font-weight: bold; cursor: pointer; }
+        
         .bottom-sheet { position: absolute; bottom: 0; left: 0; right: 0; z-index: 10; display: flex; flex-direction: column; transform: translateY(100%); transition: transform 0.3s ease-out; }
         .bottom-sheet.active { transform: translateY(0); }
         .info-card { background: white; border-radius: 16px 16px 0 0; padding: 16px; box-shadow: 0 -4px 15px rgba(0,0,0,0.1); border: 1px solid #e0e0e0; }
         .card-header { display: flex; align-items: center; margin-bottom: 8px; }
-        /* 이모지 대신 사용할 SVG 전용 컨테이너 스타일 재정의 */
-        .elevator-icon-box { color: #1e4e79; width: 36px; height: 36px; display: flex; justify-content: center; align-items: center; margin-right: 8px; }
+        
+        /* 고퀄리티 바텀시트 승강기 아이콘 배경 */
+        .elevator-icon-box { color: white; background: linear-gradient(135deg, #1e4e79, #296296); width: 42px; height: 42px; display: flex; justify-content: center; align-items: center; margin-right: 12px; border-radius: 10px; box-shadow: 0 2px 6px rgba(30,78,121,0.3); }
         .status-title { font-size: 16px; font-weight: bold; color: #333; }
         .status-highlight { color: #1e4e79; font-weight: 800; font-size: 17px; }
         .address-text { font-size: 13px; color: #666; margin-top: 2px; }
         .section-title { font-size: 14px; font-weight: bold; color: #222; margin: 12px 0 6px 0; display: flex; justify-content: space-between; align-items: center; }
+        
         .data-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: center; border: 1px solid #d2d2d2; margin-bottom: 10px; }
         .data-table th, .data-table td { border: 1px solid #d2d2d2; padding: 6px 4px; }
         .data-table th { background-color: #f1f3f5; color: #444; font-weight: bold; width: 23%; }
         .data-table td { font-weight: 500; color: #111; width: 27%; }
+        
         .check-list { font-size: 13px; color: #333; margin-top: 6px; display: flex; flex-direction: column; gap: 5px; border-top: 1px solid #eee; padding-top: 10px; }
         .check-item { display: flex; align-items: center; gap: 8px; font-weight: 500; }
         .check-item input[type="checkbox"] { width: 16px; height: 16px; accent-color: #1e4e79; }
         .parking-card { background: white; padding: 12px 16px; border-top: 1px solid #eee; display: flex; align-items: center; gap: 8px; font-weight: bold; font-size: 16px; color: #2e7d32; box-shadow: 0 -2px 5px rgba(0,0,0,0.05); padding-bottom: 24px; }
         .parking-badge { background-color: #2e7d32; color: white; border-radius: 4px; width: 20px; height: 20px; display: flex; justify-content: center; align-items: center; font-size: 12px; }
         
-        /* 맵 마커(핀)를 작고 예쁘게 튜닝 */
-        .custom-marker { background-color: #1e4e79; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: normal; box-shadow: 0 2px 4px rgba(0,0,0,0.3); position: relative; white-space: nowrap; cursor: pointer; bottom: 18px; display: flex; align-items: center; border: 1px solid rgba(255,255,255,0.2); }
+        /* 맵 마커 정밀 튜닝: 가독성 높이고 클릭하기 쉽게 재설계 */
+        .custom-marker { background-color: #1e4e79; color: white; padding: 4px 7px; border-radius: 6px; font-size: 11px; font-weight: bold; box-shadow: 0 3px 6px rgba(0,0,0,0.3); position: relative; white-space: nowrap; cursor: pointer; bottom: 20px; display: flex; align-items: center; gap: 4px; border: 1px solid rgba(255,255,255,0.4); transition: transform 0.1s; }
+        .custom-marker:active { transform: scale(0.95); }
         .custom-marker::after { content: ''; position: absolute; bottom: -5px; left: 50%; transform: translateX(-50%); border-width: 5px 5px 0; border-style: solid; border-color: #1e4e79 transparent; display: block; width: 0; }
-        .custom-marker.stopped { background-color: #d32f2f; border-color: #ffb3b3;}
+        .custom-marker.stopped { background-color: #d32f2f; border-color: #ffcccc;}
         .custom-marker.stopped::after { border-color: #d32f2f transparent; }
     </style>
 </head>
@@ -77,10 +82,10 @@
         <div class="info-card">
             <div class="card-header">
                 <div class="elevator-icon-box">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="currentColor" viewBox="0 0 16 16">
-                        <path d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2zm2-1a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H4z"/>
-                        <path d="M8.5 2.5 11 5H6l2.5-2.5zm0 11L6 11h5l-2.5 2.5z"/>
-                        <path d="M10 12h-2v-4h2v4zm-3 0H5v-4h2v4z"/>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="currentColor" viewBox="0 0 16 16">
+                        <path d="M2 1a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V1zm1.5 1v12h9V2h-9z"/>
+                        <path d="M5.5 4h1v8h-1V4zm4 0h1v8h-1V4z"/>
+                        <path d="M8 4.5l1.5 1.5h-3L8 4.5zm0 7L6.5 10h3L8 11.5z"/>
                     </svg>
                 </div>
                 <div>
@@ -91,13 +96,13 @@
             <div class="section-title">상세 제원 및 상태 <span style="color:#777; font-size:11px; font-weight:normal; cursor:pointer;" onclick="resetUI()">닫기</span></div>
             <table class="data-table">
                 <tr><th>승강기번호</th><td id="resElevatorNo" style="font-weight:bold; color:#1e4e79;">-</td><th>운행층수</th><td id="resFloors">-</td></tr>
-                <tr><th>승강기종류</th><td id="resType">-</td><th>적재하중</th><td id="resWeight">-</td></tr>
-                <tr><th>정격속도</th><td id="resSpeed">-</td><th>최대정원</th><td id="resCapacity" style="font-weight:bold;">-</td></tr>
+                <tr><th>승강기종류</th><td id="resType" style="font-weight:bold;">-</td><th>적재하중</th><td id="resWeight">-</td></tr>
+                <tr><th>정격속도</th><td id="resSpeed">-</td><th>최대정원</th><td id="resCapacity" style="font-weight:bold; color:#1e4e79;">-</td></tr>
             </table>
             <div class="check-list">
                 <div class="check-item"><input type="checkbox" id="chk1" checked disabled> <label for="chk1">비상용 엘리베이터 피트 배수시설</label></div>
                 <div class="check-item"><input type="checkbox" id="chk2" checked disabled> <label for="chk2" id="resMonitor">실시간 상태 모니터링: [조회중]</label></div>
-                <div class="check-item"><input type="checkbox" id="chk3" checked disabled> <label for="chk3">휠체어·유모차 이용 가능 여부: [가능]</label></div>
+                <div class="check-item"><input type="checkbox" id="chk3" checked disabled> <label for="chk3">휠체어·유모차 이용 가능 여부: [조회중]</label></div>
             </div>
         </div>
         <div class="parking-card">
@@ -111,6 +116,7 @@
     let markers = [];
     let geocoder; 
 
+    // 클라우드플레어 워커 프록시 주소 설정
     const DEPLOY_CONFIG = {
         CLOUDFLARE_WORKER_URL: 'https://wild-river-017e.sjh01046934.workers.dev/?url=' 
     };
@@ -120,8 +126,8 @@
         BASE_URL: 'https://apis.data.go.kr/B553664/ElevatorInformationService/getElevatorListM'
     };
 
-    // 마커 전용 미니 SVG 아이콘
-    const markerSvgIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16" style="margin-right:4px;"><path d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2zm2-1a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H4z"/><path d="M8.5 2.5 11 5H6l2.5-2.5zm0 11L6 11h5l-2.5 2.5z"/><path d="M10 12h-2v-4h2v4zm-3 0H5v-4h2v4z"/></svg>`;
+    // 지도 핀 전용 미니 SVG 마커 아이콘
+    const markerSvgIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16"><path d="M2 1a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V1zm1.5 1v12h9V2h-9zM5.5 4h1v8h-1V4zm4 0h1v8h-1V4z"/></svg>`;
 
     function initMap() {
         const container = document.getElementById('map');
@@ -149,7 +155,7 @@
             let targetUrl = '';
 
             if (query === '') {
-                targetUrl = API_CONFIG.BASE_URL + '?serviceKey=' + API_CONFIG.SERVICE_KEY + '&pageNo=1&numOfRows=100&sido=' + encodeURIComponent('세종') + '&_type=json';
+                targetUrl = API_CONFIG.BASE_URL + '?serviceKey=' + API_CONFIG.SERVICE_KEY + '&pageNo=1&numOfRows=200&sido=' + encodeURIComponent('세종') + '&_type=json';
             } else {
                 targetUrl = API_CONFIG.BASE_URL + '?serviceKey=' + API_CONFIG.SERVICE_KEY + '&pageNo=1&numOfRows=50&sido=' + encodeURIComponent('세종') + '&buld_nm=' + encodeURIComponent(query) + '&_type=json';
             }
@@ -164,16 +170,16 @@
             let items = result.response?.body?.items?.item || [];
             if (!Array.isArray(items)) items = [items];
 
-            // ★ 필수: 덤웨이터 및 순수 화물용 걸러내기 (승객화물용은 통과)
+            // 화물용, 덤웨이터 필터링 (승객화물용은 통과)
             items = items.filter(apiItem => {
-                const type = apiItem.elvtrDivNm || apiItem.elvtr_div_nm || "";
+                const type = String(apiItem.elvtrDivNm || apiItem.elvtr_div_nm || "");
                 if (type.includes('덤웨이터')) return false;
                 if (type === '화물용' || (type.includes('화물용') && !type.includes('승객'))) return false;
                 return true;
             });
 
             if (items.length === 0) {
-                if (query !== '') alert("승객용 승강기 데이터를 찾을 수 없습니다.\n(해당 건물에 화물용/덤웨이터만 존재하거나 승강기가 없습니다.)");
+                if (query !== '') alert("승객 사용 가능 승강기 데이터를 찾을 수 없습니다.");
                 return;
             }
 
@@ -183,15 +189,52 @@
                     const isOperating = !(stts.includes('정지') || stts.includes('불합격') || stts.includes('고장'));
                     const address = apiItem.address1 || apiItem.address || "";
                     
+                    // 1. 승강기 종류 정밀 매핑
+                    let originType = String(apiItem.elvtrDivNm || apiItem.elvtr_div_nm || "");
+                    let refinedType = "승객용"; 
+                    
+                    if (originType.includes("장애인")) refinedType = "장애인용";
+                    else if (originType.includes("소방") || originType.includes("비상")) refinedType = "소방구조용";
+                    else if (originType.includes("승객") && originType.includes("화물")) refinedType = "승객화물용";
+                    else if (originType.includes("에스컬레이터")) refinedType = "에스컬레이터";
+                    else if (originType.includes("무빙워크")) refinedType = "무빙워크";
+                    else if (originType.includes("수직") && originType.includes("리프트")) refinedType = "수직형휠체어리프트";
+                    else if (originType.includes("경사") && originType.includes("리프트")) refinedType = "경사형휠체어리프트";
+                    else if (originType.includes("병원") || originType.includes("침대")) refinedType = "병원용";
+                    else if (originType.includes("승객") || originType.includes("인용")) refinedType = "승객용";
+                    else refinedType = originType || "승객용"; 
+
+                    // 2. 최대정원 무결점 추출 로직 (누락 시 하중 기반 자동 연산)
+                    let rawCapacity = apiItem.personCnt || apiItem.person_cnt || apiItem.prsonCnt || apiItem.personCount;
+                    let rawWeight = apiItem.liveLoad || apiItem.live_load || "";
+                    let finalCapacity = "정보 없음";
+
+                    if (rawCapacity && !isNaN(parseInt(rawCapacity)) && parseInt(rawCapacity) > 0) {
+                        finalCapacity = parseInt(rawCapacity) + "명";
+                    } else if (rawWeight) {
+                        // 숫자만 추출 (예: "1000 kg" -> 1000)
+                        let weightNum = parseInt(rawWeight.toString().replace(/[^0-9]/g, ''));
+                        if (!isNaN(weightNum) && weightNum > 0) {
+                            // 법정 1인당 중량 75kg 기준 역산 (소수점 내림)
+                            let calc = Math.floor(weightNum / 75);
+                            if (calc > 0) finalCapacity = calc + "명 (환산)";
+                        }
+                    }
+                    
+                    // 구조물 계열은 정원 제외
+                    if (refinedType === "에스컬레이터" || refinedType === "무빙워크") {
+                        finalCapacity = "구조물";
+                    }
+
                     const baseData = {
                         buildingName: apiItem.buldNm || apiItem.buld_nm || "건물명 없음",
                         address: address,
-                        type: apiItem.elvtrDivNm || apiItem.elvtr_div_nm || "정보 없음",
-                        speed: apiItem.ratedSpeed || apiItem.rated_speed || "정보 없음",
-                        floors: apiItem.shuttleSection || apiItem.shuttle_section || "정보 없음",
-                        weight: apiItem.liveLoad || apiItem.live_load || "정보 없음",
+                        type: refinedType,
+                        speed: apiItem.ratedSpeed || apiItem.rated_speed ? (apiItem.ratedSpeed || apiItem.rated_speed) + " m/min" : "-",
+                        floors: apiItem.shuttleSection || apiItem.shuttle_section || "-",
+                        weight: rawWeight ? rawWeight + " kg" : "-",
                         elevatorNo: apiItem.elevatorNo || apiItem.elevator_no || "번호 미상",
-                        capacity: apiItem.personCnt || apiItem.person_cnt ? (apiItem.personCnt || apiItem.person_cnt) + '명' : "정보 없음",
+                        capacity: finalCapacity, 
                         state: stts,
                         isOperating: isOperating,
                         lat: 36.4792,
@@ -234,8 +277,8 @@
         dataArray.forEach(data => {
             const content = document.createElement('div');
             content.className = data.isOperating ? 'custom-marker' : 'custom-marker stopped';
-            // 엑스박스 방지 SVG 아이콘 적용 완료
-            content.innerHTML = markerSvgIcon + data.buildingName + (data.isOperating ? '' : ' (정지)');
+            // SVG 아이콘과 텍스트의 완벽한 배치
+            content.innerHTML = markerSvgIcon + `<span>${data.buildingName}${data.isOperating ? '' : ' (정지)'}</span>`;
             
             content.onclick = function() { openBottomSheet(data); };
 
@@ -256,7 +299,7 @@
     }
 
     function openBottomSheet(data) {
-        document.getElementById('resStatus').innerHTML = data.isOperating ? '<span style="color:#2e7d32;">(운행중)</span>' : '<span style="color:#d32f2f;">(점검/정지)</span>';
+        document.getElementById('resStatus').innerHTML = data.isOperating ? '<span style="color:#2e7d32;">(정상운행)</span>' : '<span style="color:#d32f2f;">(점검/정지)</span>';
         document.getElementById('resAddress').innerText = data.address;
         document.getElementById('resElevatorNo').innerText = data.elevatorNo;
         document.getElementById('resType').innerText = data.type;
@@ -265,8 +308,11 @@
         document.getElementById('resWeight').innerText = data.weight;
         document.getElementById('resCapacity').innerText = data.capacity; 
         
-     
         document.getElementById('resMonitor').innerText = '실시간 상태 모니터링: [' + (data.isOperating ? '정상운행' : '정지') + ']';
+        
+        // 접근성 및 부가 정보 연동 (장애인용, 병원용 등)
+        const isAccessible = data.type.includes("장애인") || data.type.includes("수직") || data.type.includes("병원");
+        document.getElementById('chk3').nextElementSibling.innerText = `휠체어·유모차 이용: [${isAccessible ? '권장' : '가능'}]`;
 
         document.getElementById('bottomSheet').classList.add('active');
         map.panTo(new kakao.maps.LatLng(data.lat - 0.001, data.lng));
