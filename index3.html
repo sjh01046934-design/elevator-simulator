@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>승강기 검색 서비스 - 최종 배포</title>
+    <title>승강기 검색 서비스 - 실무 배포용</title>
     
     <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=59f58919246c9ac3780496fc7e2c0d74&autoload=false"></script>
     
@@ -121,17 +121,32 @@
         kakao.maps.event.addListener(map, 'click', function() {
             resetUI();
         });
+
+        // 지도가 초기화되자마자 전체 검색을 자동으로 한 번 실행합니다.
+        executeSearch();
     }
 
     async function executeSearch() {
         const query = document.getElementById('searchInput').value.trim();
-        if (!query) return;
-
+        
         document.getElementById('recentSearchBox').style.display = 'none';
 
+        if(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL.includes('내아이디.workers.dev')) {
+            console.error("나만의 프록시 서버 주소가 비어있습니다.");
+            return;
+        }
+
         try {
-            // 구문 에러 방지를 위해 백틱 연산자 대신 문자열 덧셈(+) 기호로만 결합하도록 정제
-            const targetUrl = API_CONFIG.BASE_URL + '?serviceKey=' + API_CONFIG.SERVICE_KEY + '&pageNo=1&numOfRows=10&sido=' + encodeURIComponent('세종') + '&buld_nm=' + encodeURIComponent(query) + '&_type=json';
+            let targetUrl = '';
+
+            // 검색어 유무에 따른 호출 데이터 조절
+            if (query === '') {
+                // 검색어가 없으면 관내(세종) 전체 500개 호출
+                targetUrl = API_CONFIG.BASE_URL + '?serviceKey=' + API_CONFIG.SERVICE_KEY + '&pageNo=1&numOfRows=500&sido=' + encodeURIComponent('세종') + '&_type=json';
+            } else {
+                // 검색어가 있으면 해당 건물 집중 검색 (최대 50개)
+                targetUrl = API_CONFIG.BASE_URL + '?serviceKey=' + API_CONFIG.SERVICE_KEY + '&pageNo=1&numOfRows=50&sido=' + encodeURIComponent('세종') + '&buld_nm=' + encodeURIComponent(query) + '&_type=json';
+            }
             
             const proxyUrl = DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(targetUrl);
             
@@ -144,20 +159,22 @@
             if (!Array.isArray(items)) items = [items];
 
             if (items.length === 0 || !items[0]) {
-                alert("검색된 승강기 데이터가 없습니다. 건물명을 다시 확인해주세요.");
+                if (query !== '') alert("검색된 승강기 데이터가 없습니다. 건물명을 다시 확인해주세요.");
                 return;
             }
 
             const mappedData = items.map(apiData => mapApiDataToAppFormat(apiData));
             renderMarkers(mappedData);
 
-            if(mappedData.length > 0) {
+            // 검색어를 직접 입력해서 찾은 경우에만 바텀시트를 자동으로 띄워줍니다. (초기 전체 로드 시에는 방해되지 않도록 띄우지 않음)
+            if(query !== '' && mappedData.length > 0) {
                 openBottomSheet(mappedData[0]);
             }
 
         } catch (error) {
             console.error("데이터 연동 실패:", error);
-            alert("공공데이터 서버 통신 에러가 발생했습니다.");
+            // 초기 자동 실행 시 사용자에게 에러 알림이 뜨지 않도록 처리
+            if (query !== '') alert("공공데이터 서버 통신 에러가 발생했습니다.");
         }
     }
 
@@ -168,8 +185,9 @@
         return {
             buildingName: apiItem.buldNm || apiItem.buld_nm || "지정 건물명 없음",
             address: apiItem.address1 || apiItem.address || "세종특별자치시 관내 주소",
-            lat: parseFloat(apiItem.gpsLati || apiItem.gps_lati) || 36.4792 + (Math.random() - 0.5) * 0.003,
-            lng: parseFloat(apiItem.gpsLong || apiItem.gps_long) || 127.2892 + (Math.random() - 0.5) * 0.003,
+            // 데이터가 겹치지 않게 미세한 랜덤 값을 주어 마커를 분산시킵니다.
+            lat: parseFloat(apiItem.gpsLati || apiItem.gps_lati) || 36.4792 + (Math.random() - 0.5) * 0.05,
+            lng: parseFloat(apiItem.gpsLong || apiItem.gps_long) || 127.2892 + (Math.random() - 0.5) * 0.05,
             type: apiItem.elvtrDivNm || apiItem.elvtr_div_nm || "승객용",
             speed: apiItem.ratedSpeed || apiItem.rated_speed || "1.5 m/s",
             floors: apiItem.shuttleSection || apiItem.shuttle_section || "1F ~ 최고층",
@@ -201,7 +219,8 @@
             markers.push(customOverlay);
         });
         
-        if(dataArray.length > 0) {
+        // 검색결과가 1개 이상일 경우 첫 번째 마커를 중심으로 지도를 이동 (초기 전체 로드 시에는 화면 유지)
+        if(dataArray.length > 0 && document.getElementById('searchInput').value.trim() !== '') {
             map.setCenter(new kakao.maps.LatLng(dataArray[0].lat, dataArray[0].lng));
             map.setLevel(4);
         }
@@ -228,7 +247,12 @@
     function handleKeyPress(e) { if (e.key === 'Enter') { executeSearch(); } }
     function showRecentSearch() { document.getElementById('recentSearchBox').style.display = 'block'; }
     function selectTag(val) { document.getElementById('searchInput').value = val; executeSearch(); }
-    function clearSearch() { document.getElementById('searchInput').value = ''; resetUI(); }
+    function clearSearch() { 
+        document.getElementById('searchInput').value = ''; 
+        resetUI(); 
+        // 검색어를 지울 경우 다시 전체 승강기 로드
+        executeSearch();
+    }
     function clearRecent() { document.getElementById('recentSearchBox').style.display = 'none'; }
     function resetUI() {
         document.getElementById('bottomSheet').classList.remove('active');
