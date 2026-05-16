@@ -14,7 +14,6 @@
         #map { width: 100%; height: 100%; z-index: 1; }
         .search-bar-wrapper { position: absolute; top: 0; left: 0; right: 0; padding: 35px 16px 10px 16px; background: linear-gradient(to bottom, rgba(255,255,255,0.9) 70%, rgba(255,255,255,0)); z-index: 10; }
         
-        /* 검색바 영역에 지역 선택(Select) 추가를 위한 레이아웃 수정 */
         .search-bar { background: white; border-radius: 8px; display: flex; align-items: center; padding: 8px 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); border: 1px solid #dcdcdc; }
         .sido-select { border: none; border-right: 1px solid #ddd; background: transparent; font-size: 14px; font-weight: bold; color: #1e4e79; outline: none; padding-right: 8px; margin-right: 8px; cursor: pointer; }
         .search-bar input { flex: 1; border: none; outline: none; font-size: 15px; font-weight: bold; color: #222; }
@@ -29,7 +28,6 @@
         .recent-tags { display: flex; flex-wrap: wrap; gap: 6px; }
         .tag { background: #edf2f7; padding: 6px 12px; border-radius: 15px; font-size: 12px; color: #4a5568; font-weight: bold; cursor: pointer; }
         
-        /* 바텀시트 및 스크롤 디자인 */
         .bottom-sheet { position: absolute; bottom: 0; left: 0; right: 0; z-index: 10; display: flex; flex-direction: column; transform: translateY(100%); transition: transform 0.3s ease-out; background: white; border-radius: 16px 16px 0 0; box-shadow: 0 -4px 15px rgba(0,0,0,0.15); border: 1px solid #e0e0e0; max-height: 80vh; }
         .bottom-sheet.active { transform: translateY(0); }
         .info-card { padding: 16px; display: flex; flex-direction: column; height: 100%; overflow: hidden; }
@@ -149,7 +147,6 @@
     const markerSvgIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16"><path d="M2 1a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V1zm1.5 1v12h9V2h-9zM5.5 4h1v8h-1V4zm4 0h1v8h-1V4z"/></svg>`;
 
     function initMap() {
-        // 앱 구동 시 초기 지도는 대한민국의 대략적인 중심으로 설정 (대전/세종 인근)
         const container = document.getElementById('map');
         const options = { center: new kakao.maps.LatLng(36.4792, 127.2892), level: 5 };
         map = new kakao.maps.Map(container, options);
@@ -160,9 +157,11 @@
 
     async function executeSearch() {
         const query = document.getElementById('searchInput').value.trim();
-        const sido = document.getElementById('sidoSelector').value; // ★ 선택한 지역값 가져오기
+        const sido = document.getElementById('sidoSelector').value; 
         
         document.getElementById('recentSearchBox').style.display = 'none';
+        // 검색 전 열려있는 바텀시트 닫기
+        resetUI();
 
         if(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL.includes('내아이디.workers.dev')) return;
 
@@ -175,7 +174,6 @@
             let items = [];
             document.getElementById('searchLoadingMsg').style.display = 'block';
 
-            // ★ 지역(sido) 변수를 URL에 동적으로 반영하여 전국 어디든 검색 가능
             const MAX_ROWS = 500; 
             const urlBuld = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=1&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(sido) + '&buld_nm=' + encodeURIComponent(query) + '&_type=json';
             const urlAddr = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=1&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(sido) + '&address1=' + encodeURIComponent(query) + '&_type=json';
@@ -195,7 +193,6 @@
 
             let combinedItems = [...itemsBuld, ...itemsAddr];
             
-            // 앱 내부 2차 필터링 (가짜 데이터 차단)
             const loweredQuery = query.toLowerCase();
             combinedItems = combinedItems.filter(item => {
                 const buldNm = String(item.buldNm || item.buld_nm || "").toLowerCase();
@@ -203,7 +200,6 @@
                 return buldNm.includes(loweredQuery) || address.includes(loweredQuery);
             });
 
-            // 고유번호 중복 제거
             const uniqueMap = new Map();
             combinedItems.forEach(item => {
                 const elvNo = item.elevatorNo || item.elevator_no;
@@ -213,7 +209,6 @@
             
             document.getElementById('searchLoadingMsg').style.display = 'none';
 
-            // 화물용 제외 로직
             items = items.filter(apiItem => {
                 const type = String(apiItem.elvtrKindNm || apiItem.elvtrDivNm || "");
                 if (type.includes('덤웨이터')) return false;
@@ -226,7 +221,6 @@
                 return;
             }
 
-            // 건물 그룹핑
             const groupedMap = new Map();
 
             items.forEach(apiItem => {
@@ -310,9 +304,7 @@
                 });
             })).then(finalData => {
                 renderMarkers(finalData);
-                if(query !== '' && finalData.length > 0) {
-                    openBottomSheet(finalData[0]);
-                }
+                // ★ 검색 성공 후 바텀시트를 자동으로 올리지 않습니다 (사용자 클릭 유도)
             });
 
         } catch (error) {
@@ -346,6 +338,7 @@
         });
         
         if(dataArray.length > 0) {
+            // 검색된 건물의 위치를 계산하여 지도를 그곳으로 이동시킵니다.
             map.setCenter(new kakao.maps.LatLng(dataArray[0].lat, dataArray[0].lng));
             map.setLevel(4); 
         }
@@ -396,7 +389,6 @@
     function handleKeyPress(e) { if (e.key === 'Enter') { document.getElementById('searchInput').blur(); executeSearch(); } }
     function showRecentSearch() { document.getElementById('recentSearchBox').style.display = 'block'; }
     
-    // 지역 선택 시 태그 검색 자동 맵핑 기능
     function selectTag(sido, query) { 
         document.getElementById('sidoSelector').value = sido;
         document.getElementById('searchInput').value = query; 
