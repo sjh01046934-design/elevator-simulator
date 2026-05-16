@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>승강기 검색 서비스 - 전국구 지원 버전</title>
+    <title>승강기 검색 서비스 - 상태 판독 최적화</title>
     
     <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=59f58919246c9ac3780496fc7e2c0d74&libraries=services&autoload=false"></script>
     
@@ -160,7 +160,6 @@
         const sido = document.getElementById('sidoSelector').value; 
         
         document.getElementById('recentSearchBox').style.display = 'none';
-        // 검색 전 열려있는 바텀시트 닫기
         resetUI();
 
         if(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL.includes('내아이디.workers.dev')) return;
@@ -238,8 +237,17 @@
                     });
                 }
 
-                const stts = apiItem.elvtrSttsNm || apiItem.elvtr_stts_nm || apiItem.elvtrStts || "상태불명";
-                const isOperating = !(stts.includes('정지') || stts.includes('불합격') || stts.includes('고장'));
+                // ★ 완벽 조치 1: '중지', '연기', '휴지', '폐기' 등 모든 정지 뉘앙스 키워드 필터링 적용
+                const stts = String(apiItem.elvtrSttsNm || apiItem.elvtr_stts_nm || apiItem.elvtrStts || "상태불명").trim();
+                const isOperating = !(
+                    stts.includes('정지') || 
+                    stts.includes('중지') || 
+                    stts.includes('불합격') || 
+                    stts.includes('고장') || 
+                    stts.includes('연기') || 
+                    stts.includes('휴지') || 
+                    stts.includes('폐기')
+                );
                 
                 let rawType = String(apiItem.elvtrKindNm || apiItem.elvtrDivNm || "").trim();
                 let refinedType = "승객용"; 
@@ -278,7 +286,7 @@
                     floors: apiItem.shuttleSection || apiItem.shuttle_section || "-",
                     weight: finalWeight,
                     capacity: finalCapacity,
-                    state: stts,
+                    state: stts, // ★ 완벽 조치 2: 가공하지 않은 원본 상태값(stts)을 그대로 저장!
                     isOperating: isOperating
                 });
             });
@@ -304,7 +312,6 @@
                 });
             })).then(finalData => {
                 renderMarkers(finalData);
-                // ★ 검색 성공 후 바텀시트를 자동으로 올리지 않습니다 (사용자 클릭 유도)
             });
 
         } catch (error) {
@@ -338,7 +345,6 @@
         });
         
         if(dataArray.length > 0) {
-            // 검색된 건물의 위치를 계산하여 지도를 그곳으로 이동시킵니다.
             map.setCenter(new kakao.maps.LatLng(dataArray[0].lat, dataArray[0].lng));
             map.setLevel(4); 
         }
@@ -363,12 +369,18 @@
             }
 
             const stateColor = elv.isOperating ? "#1e4e79" : "#d32f2f";
-            const stateText = elv.isOperating ? "정상운행" : "정지";
+            
+            // ★ 완벽 조치 2 적용: 상태 텍스트에 하드코딩된 '정지/정상운행' 대신 elv.state 원본 텍스트 노출!
+            // 다만 '합격' 같은 단순한 글자만 있을 땐 보기 좋게 가공
+            let displayStateText = elv.state;
+            if (elv.isOperating && (elv.state === "합격" || elv.state === "상태불명")) {
+                displayStateText = "정상운행";
+            }
 
             const tableHtml = `
                 <div class="elv-item-title">
                     <span>#${index + 1} 호기 <span style="font-weight:normal; color:#777;">(${elv.elevatorNo})</span></span>
-                    <span style="color:${stateColor}; font-size:12px;">[${stateText}]</span>
+                    <span style="color:${stateColor}; font-size:12px;">[${displayStateText}]</span>
                 </div>
                 <table class="data-table">
                     <tr><th>승강기종류</th><td style="font-weight:bold;">${elv.type}</td><th>운행층수</th><td>${elv.floors}</td></tr>
