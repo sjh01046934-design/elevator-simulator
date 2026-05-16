@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>승강기 검색 서비스 - 실무 현장용 PRO</title>
+    <title>승강기 검색 서비스 - 안정화 PRO</title>
     
     <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=59f58919246c9ac3780496fc7e2c0d74&libraries=services&autoload=false"></script>
     
@@ -37,9 +37,7 @@
         
         .section-title { font-size: 14px; font-weight: bold; color: #222; margin: 12px 0 6px 0; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;}
         
-        /* 다중 승강기 표시를 위한 스크롤 컨테이너 */
         .elevator-list-scroll { overflow-y: auto; flex-grow: 1; padding-right: 4px; margin-bottom: 10px; border-bottom: 1px solid #eee; }
-        /* 스크롤바 디자인 (웹킷) */
         .elevator-list-scroll::-webkit-scrollbar { width: 6px; }
         .elevator-list-scroll::-webkit-scrollbar-thumb { background-color: #ccc; border-radius: 4px; }
         .elevator-list-scroll::-webkit-scrollbar-track { background-color: #f1f3f5; }
@@ -89,7 +87,7 @@
         <div class="info-card">
             <div class="card-header">
                 <div class="elevator-icon-box">
-                    <img src="vecteezy_elevator-illustrated-on-a-white-background_.jpg" alt="승강기 아이콘" onerror="this.src='https://cdn-icons-png.flaticon.com/512/3223/3223126.png';">
+                    <img src="image_0.png" alt="승강기 아이콘" onerror="this.src='https://cdn-icons-png.flaticon.com/512/3223/3223126.png';">
                 </div>
                 <div>
                     <div class="status-title" id="resBuildingName">건물명</div>
@@ -117,7 +115,6 @@
     let map;
     let markers = [];
     let geocoder; 
-    let allElevatorData = []; 
 
     const DEPLOY_CONFIG = {
         CLOUDFLARE_WORKER_URL: 'https://wild-river-017e.sjh01046934.workers.dev/?url=' 
@@ -142,25 +139,47 @@
         kakao.maps.event.addListener(map, 'click', function() {
             resetUI();
         });
-
-        loadAllData();
+        
+        // 에러 원인이었던 loadAllData()를 삭제하고, 지도가 뜨면 조용히 검색을 대기합니다.
     }
 
-    async function loadAllData() {
+    // 서버 과부하를 막는 실시간 병렬(OR) 검색 + 스크롤 그룹핑
+    async function executeSearch() {
+        const query = document.getElementById('searchInput').value.trim();
+        if (!query) return; // 검색어가 없으면 작동 중지
+        
+        document.getElementById('recentSearchBox').style.display = 'none';
+
         if(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL.includes('내아이디.workers.dev')) return;
 
         try {
-            const targetUrl = API_CONFIG.BASE_URL + '?serviceKey=' + API_CONFIG.SERVICE_KEY + '&pageNo=1&numOfRows=2000&sido=' + encodeURIComponent('세종') + '&_type=json';
-            const proxyUrl = DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(targetUrl);
-            
-            const response = await fetch(proxyUrl);
-            if (!response.ok) throw new Error("서버 응답 에러");
-            
-            const result = await response.json();
-            
-            let items = result.response?.body?.items?.item || [];
-            if (!Array.isArray(items)) items = [items];
+            // 건물명(buld_nm)과 주소(address1) 2개의 API를 동시에 병렬 요청
+            const urlBuld = API_CONFIG.BASE_URL + '?serviceKey=' + API_CONFIG.SERVICE_KEY + '&pageNo=1&numOfRows=100&sido=' + encodeURIComponent('세종') + '&buld_nm=' + encodeURIComponent(query) + '&_type=json';
+            const urlAddr = API_CONFIG.BASE_URL + '?serviceKey=' + API_CONFIG.SERVICE_KEY + '&pageNo=1&numOfRows=100&sido=' + encodeURIComponent('세종') + '&address1=' + encodeURIComponent(query) + '&_type=json';
 
+            const proxyBuld = DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlBuld);
+            const proxyAddr = DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlAddr);
+
+            const [resBuld, resAddr] = await Promise.all([
+                fetch(proxyBuld).then(res => res.ok ? res.json() : {}),
+                fetch(proxyAddr).then(res => res.ok ? res.json() : {})
+            ]);
+
+            let itemsBuld = resBuld.response?.body?.items?.item || [];
+            let itemsAddr = resAddr.response?.body?.items?.item || [];
+            if (!Array.isArray(itemsBuld)) itemsBuld = [itemsBuld];
+            if (!Array.isArray(itemsAddr)) itemsAddr = [itemsAddr];
+
+            // 합치기 및 중복 제거
+            let combinedItems = [...itemsBuld, ...itemsAddr];
+            const uniqueMap = new Map();
+            combinedItems.forEach(item => {
+                const elvNo = item.elevatorNo || item.elevator_no;
+                if (elvNo && !uniqueMap.has(elvNo)) uniqueMap.set(elvNo, item);
+            });
+            let items = Array.from(uniqueMap.values());
+
+            // 화물용, 덤웨이터 필터링
             items = items.filter(apiItem => {
                 const type = String(apiItem.elvtrKindNm || apiItem.elvtrDivNm || "");
                 if (type.includes('덤웨이터')) return false;
@@ -168,134 +187,104 @@
                 return true;
             });
 
-            allElevatorData = items;
-            executeSearch();
+            if (items.length === 0) {
+                alert("검색어(주소 또는 건물명)에 해당하는 승객용 승강기가 없습니다.");
+                return;
+            }
+
+            // 건물명+주소 기준으로 그룹핑
+            const groupedMap = new Map();
+
+            items.forEach(apiItem => {
+                const buldNm = apiItem.buldNm || apiItem.buld_nm || "건물명 없음";
+                const address = apiItem.address1 || apiItem.address || "주소 없음";
+                const key = `${buldNm}_${address}`;
+
+                if (!groupedMap.has(key)) {
+                    groupedMap.set(key, {
+                        buildingName: buldNm,
+                        address: address,
+                        lat: parseFloat(apiItem.gpsLati || apiItem.gps_lati) || null,
+                        lng: parseFloat(apiItem.gpsLong || apiItem.gps_long) || null,
+                        elevators: []
+                    });
+                }
+
+                const stts = apiItem.elvtrSttsNm || apiItem.elvtr_stts_nm || apiItem.elvtrStts || "상태불명";
+                const isOperating = !(stts.includes('정지') || stts.includes('불합격') || stts.includes('고장'));
+                
+                let rawType = String(apiItem.elvtrKindNm || apiItem.elvtrDivNm || "").trim();
+                let refinedType = "승객용"; 
+                if (rawType.includes("장애") && rawType.includes("화물") && rawType.includes("승객")) refinedType = "장애/승객화물용";
+                else if (rawType.includes("에스컬레이터")) refinedType = "에스컬레이터";
+                else if (rawType.includes("무빙워크")) refinedType = "무빙워크";
+                else if (rawType.includes("수직") && rawType.includes("휠체어")) refinedType = "수직형휠체어리프트";
+                else if (rawType.includes("경사") && rawType.includes("휠체어")) refinedType = "경사형휠체어리프트";
+                else if (rawType.includes("장애인")) refinedType = "장애인용";
+                else if (rawType.includes("소방") || rawType.includes("구조") || rawType.includes("비상")) refinedType = "소방구조용";
+                else if (rawType.includes("화물") && rawType.includes("승객")) refinedType = "승객화물용";
+                else if (rawType.includes("병원") || rawType.includes("침대")) refinedType = "병원용";
+                else if (rawType.includes("승객") || rawType.includes("인용")) refinedType = "승객용";
+
+                let rawWeight = String(apiItem.liveLoad || apiItem.live_load || "");
+                let weightNum = rawWeight.replace(/[^0-9]/g, ""); 
+                let finalWeight = weightNum ? weightNum + " kg" : "-";
+
+                let rawSpeed = String(apiItem.ratedSpeed || apiItem.rated_speed || "");
+                let speedNum = rawSpeed.replace(/[^0-9.]/g, "");
+                let finalSpeed = speedNum ? speedNum + " m/min" : "-";
+
+                let rawCap = String(apiItem.prsonCnt || apiItem.personCnt || apiItem.person_cnt || apiItem.personCount || "");
+                let capNum = rawCap.replace(/[^0-9]/g, "");
+                let finalCapacity = "-";
+
+                if (capNum && parseInt(capNum) > 0) finalCapacity = parseInt(capNum) + "명";
+                else if (weightNum && parseInt(weightNum) > 0) finalCapacity = Math.floor(parseInt(weightNum) / 75) + "명";
+
+                if (refinedType === "에스컬레이터" || refinedType === "무빙워크") finalCapacity = "-";
+
+                groupedMap.get(key).elevators.push({
+                    elevatorNo: apiItem.elevatorNo || apiItem.elevator_no || "번호 미상",
+                    type: refinedType,
+                    speed: finalSpeed,
+                    floors: apiItem.shuttleSection || apiItem.shuttle_section || "-",
+                    weight: finalWeight,
+                    capacity: finalCapacity,
+                    state: stts,
+                    isOperating: isOperating
+                });
+            });
+
+            const groupedDataArray = Array.from(groupedMap.values());
+
+            Promise.all(groupedDataArray.map(group => {
+                return new Promise((resolve) => {
+                    if (group.lat && group.lng) {
+                        resolve(group);
+                        return;
+                    }
+                    geocoder.addressSearch(group.address, function(result, status) {
+                        if (status === kakao.maps.services.Status.OK) {
+                            group.lat = parseFloat(result[0].y);
+                            group.lng = parseFloat(result[0].x);
+                        } else {
+                            group.lat = 36.4792 + (Math.random() - 0.5) * 0.05;
+                            group.lng = 127.2892 + (Math.random() - 0.5) * 0.05;
+                        }
+                        resolve(group);
+                    });
+                });
+            })).then(finalData => {
+                renderMarkers(finalData);
+                if(finalData.length > 0) {
+                    openBottomSheet(finalData[0]);
+                }
+            });
 
         } catch (error) {
-            console.error("데이터 초기화 실패:", error);
+            console.error("데이터 연동 실패:", error);
+            alert("공공데이터 서버 통신 에러가 발생했습니다.");
         }
-    }
-
-    function executeSearch() {
-        const query = document.getElementById('searchInput').value.trim();
-        document.getElementById('recentSearchBox').style.display = 'none';
-
-        if(allElevatorData.length === 0) return;
-
-        let filteredItems = [];
-
-        if (query === '') {
-            filteredItems = allElevatorData;
-        } else {
-            const loweredQuery = query.toLowerCase();
-            filteredItems = allElevatorData.filter(item => {
-                const buldNm = String(item.buldNm || item.buld_nm || "").toLowerCase();
-                const address = String(item.address1 || item.address || "").toLowerCase();
-                return buldNm.includes(loweredQuery) || address.includes(loweredQuery);
-            });
-        }
-
-        if (filteredItems.length === 0) {
-            if (query !== '') alert("주소 또는 건물명에 일치하는 승객용 승강기가 없습니다.");
-            return;
-        }
-
-        // ========================================================
-        // ★ 핵심: 건물명과 주소가 같은 데이터를 하나의 객체로 그룹핑 (묶기)
-        // ========================================================
-        const groupedMap = new Map();
-
-        filteredItems.forEach(apiItem => {
-            const buldNm = apiItem.buldNm || apiItem.buld_nm || "건물명 없음";
-            const address = apiItem.address1 || apiItem.address || "주소 없음";
-            
-            // 건물명+주소 조합을 고유 키로 사용
-            const key = `${buldNm}_${address}`;
-
-            if (!groupedMap.has(key)) {
-                groupedMap.set(key, {
-                    buildingName: buldNm,
-                    address: address,
-                    lat: parseFloat(apiItem.gpsLati || apiItem.gps_lati) || null,
-                    lng: parseFloat(apiItem.gpsLong || apiItem.gps_long) || null,
-                    elevators: [] // 이 건물에 속한 승강기들을 담을 배열
-                });
-            }
-
-            // 개별 승강기 데이터 정제 로직
-            const stts = apiItem.elvtrSttsNm || apiItem.elvtr_stts_nm || apiItem.elvtrStts || "상태불명";
-            const isOperating = !(stts.includes('정지') || stts.includes('불합격') || stts.includes('고장'));
-            
-            let rawType = String(apiItem.elvtrKindNm || apiItem.elvtrDivNm || "").trim();
-            let refinedType = "승객용"; 
-            if (rawType.includes("장애") && rawType.includes("화물") && rawType.includes("승객")) refinedType = "장애/승객화물용";
-            else if (rawType.includes("에스컬레이터")) refinedType = "에스컬레이터";
-            else if (rawType.includes("무빙워크")) refinedType = "무빙워크";
-            else if (rawType.includes("수직") && rawType.includes("휠체어")) refinedType = "수직형휠체어리프트";
-            else if (rawType.includes("경사") && rawType.includes("휠체어")) refinedType = "경사형휠체어리프트";
-            else if (rawType.includes("장애인")) refinedType = "장애인용";
-            else if (rawType.includes("소방") || rawType.includes("구조") || rawType.includes("비상")) refinedType = "소방구조용";
-            else if (rawType.includes("화물") && rawType.includes("승객")) refinedType = "승객화물용";
-            else if (rawType.includes("병원") || rawType.includes("침대")) refinedType = "병원용";
-            else if (rawType.includes("승객") || rawType.includes("인용")) refinedType = "승객용";
-
-            let rawWeight = String(apiItem.liveLoad || apiItem.live_load || "");
-            let weightNum = rawWeight.replace(/[^0-9]/g, ""); 
-            let finalWeight = weightNum ? weightNum + " kg" : "-";
-
-            let rawSpeed = String(apiItem.ratedSpeed || apiItem.rated_speed || "");
-            let speedNum = rawSpeed.replace(/[^0-9.]/g, "");
-            let finalSpeed = speedNum ? speedNum + " m/min" : "-";
-
-            let rawCap = String(apiItem.prsonCnt || apiItem.personCnt || apiItem.person_cnt || apiItem.personCount || "");
-            let capNum = rawCap.replace(/[^0-9]/g, "");
-            let finalCapacity = "-";
-
-            if (capNum && parseInt(capNum) > 0) finalCapacity = parseInt(capNum) + "명";
-            else if (weightNum && parseInt(weightNum) > 0) finalCapacity = Math.floor(parseInt(weightNum) / 75) + "명";
-
-            if (refinedType === "에스컬레이터" || refinedType === "무빙워크") finalCapacity = "-";
-
-            // 정제된 단일 승강기 데이터를 해당 건물 배열에 밀어넣기
-            groupedMap.get(key).elevators.push({
-                elevatorNo: apiItem.elevatorNo || apiItem.elevator_no || "번호 미상",
-                type: refinedType,
-                speed: finalSpeed,
-                floors: apiItem.shuttleSection || apiItem.shuttle_section || "-",
-                weight: finalWeight,
-                capacity: finalCapacity,
-                state: stts,
-                isOperating: isOperating
-            });
-        });
-
-        const groupedDataArray = Array.from(groupedMap.values());
-
-        // 좌표가 없는 건물들의 좌표를 찾아주는 비동기 처리
-        Promise.all(groupedDataArray.map(group => {
-            return new Promise((resolve) => {
-                if (group.lat && group.lng) {
-                    resolve(group);
-                    return;
-                }
-                geocoder.addressSearch(group.address, function(result, status) {
-                    if (status === kakao.maps.services.Status.OK) {
-                        group.lat = parseFloat(result[0].y);
-                        group.lng = parseFloat(result[0].x);
-                    } else {
-                        // 변환 실패 시 세종시청 부근 기본 좌표 (랜덤 분산)
-                        group.lat = 36.4792 + (Math.random() - 0.5) * 0.05;
-                        group.lng = 127.2892 + (Math.random() - 0.5) * 0.05;
-                    }
-                    resolve(group);
-                });
-            });
-        })).then(finalData => {
-            renderMarkers(finalData);
-            if(query !== '' && finalData.length > 0) {
-                openBottomSheet(finalData[0]);
-            }
-        });
     }
 
     function renderMarkers(dataArray) {
@@ -303,12 +292,10 @@
         markers = [];
 
         dataArray.forEach(group => {
-            // 해당 건물의 모든 승강기가 정지 상태인지 확인
             const isAllStopped = group.elevators.every(e => !e.isOperating);
             
             const content = document.createElement('div');
             content.className = isAllStopped ? 'custom-marker stopped' : 'custom-marker';
-            // 마커에 "건물명 (총 N대)" 표시
             content.innerHTML = markerSvgIcon + `<span>${group.buildingName} (${group.elevators.length}대)</span>`;
             
             content.onclick = function() { openBottomSheet(group); };
@@ -323,14 +310,13 @@
             markers.push(customOverlay);
         });
         
-        if(dataArray.length > 0 && document.getElementById('searchInput').value.trim() !== '') {
+        if(dataArray.length > 0) {
             map.setCenter(new kakao.maps.LatLng(dataArray[0].lat, dataArray[0].lng));
             map.setLevel(4); 
         }
     }
 
     function openBottomSheet(groupData) {
-        // 1. 헤더 세팅 (건물명, 주소, 총 대수)
         document.getElementById('resBuildingName').innerText = groupData.buildingName;
         document.getElementById('resAddress').innerText = groupData.address;
         document.getElementById('resTotalCount').innerText = `(${groupData.elevators.length}대)`;
@@ -338,9 +324,8 @@
         const isAnyStopped = groupData.elevators.some(e => !e.isOperating);
         document.getElementById('resStatus').innerHTML = isAnyStopped ? '<span style="color:#d32f2f;">[점검요망]</span>' : '<span style="color:#2e7d32;">[전체정상]</span>';
 
-        // 2. 승강기 목록 테이블 동적 생성 (스크롤 영역)
         const listContainer = document.getElementById('elevatorListContainer');
-        listContainer.innerHTML = ''; // 기존 목록 초기화
+        listContainer.innerHTML = ''; 
         
         let hasWheelchair = false;
 
@@ -352,7 +337,6 @@
             const stateColor = elv.isOperating ? "#1e4e79" : "#d32f2f";
             const stateText = elv.isOperating ? "정상운행" : "정지";
 
-            // 각 승강기의 독립적인 표 생성
             const tableHtml = `
                 <div class="elv-item-title">
                     <span>#${index + 1} 호기 <span style="font-weight:normal; color:#777;">(${elv.elevatorNo})</span></span>
@@ -367,7 +351,6 @@
             listContainer.innerHTML += tableHtml;
         });
 
-        // 3. 글로벌 체크리스트 세팅
         document.getElementById('resWheelchair').innerText = `휠체어·유모차 이용: [${hasWheelchair ? '권장(가능 승강기 보유)' : '일반'}]`;
 
         document.getElementById('bottomSheet').classList.add('active');
@@ -380,7 +363,6 @@
     function clearSearch() { 
         document.getElementById('searchInput').value = ''; 
         resetUI(); 
-        executeSearch();
     }
     function clearRecent() { document.getElementById('recentSearchBox').style.display = 'none'; }
     function resetUI() {
