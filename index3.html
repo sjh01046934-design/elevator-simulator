@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>승강기 검색 서비스 - 프로동작 배포 버전</title>
     
+    <!-- 카카오맵 API (최적화 및 콘솔 경고 제거를 위한 autoload=false 적용) -->
     <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=59f58919246c9ac3780496fc7e2c0d74&autoload=false"></script>
     
     <style>
@@ -106,12 +107,14 @@
     // 개설하신 클라우드플레어 워커(Cloudflare Workers)의 실접속 주소를 아래에 바르게 붙여넣어 주세요.
     // 주소 끝에 꼭 슬래시(/)와 함께 ?url= 구문이 포함되도록 세팅해야 완벽하게 중계됩니다.
     // =========================================================================
-    const DEPLOY_CONFIG = {
-        CLOUDFLARE_WORKER_URL: 'https://wild-river-017e.sjh01046934.workers.dev' 
-    };
-
+    // ✅ 중복된 DEPLOY_CONFIG 선언을 제거하고 올바른 주소 하나만 남겨두었습니다.
     const DEPLOY_CONFIG = {
         CLOUDFLARE_WORKER_URL: 'https://wild-river-017e.sjh01046934.workers.dev/?url=' 
+    };
+
+    const API_CONFIG = {
+        SERVICE_KEY: 'bf828022bb4535034959395893c59397fff91ac219c93670610575093972289d',
+        BASE_URL: 'https://apis.data.go.kr/B553664/ElevatorInformationService/getElevatorListM'
     };
 
     function initMap() {
@@ -135,7 +138,8 @@
 
         // 워커 주소가 초기값 그대로일 경우 가이드 경고
         if(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL.includes('내아이디.workers.dev')) {
-            alert("나만의 프록시 서버 주소가 비어있습니다.\n코드 내부 DEPLOY_CONFIG의 워커 URL을 먼저 본인의 주소로 변경 후 배포해 주세요.");
+            alert("나만의 프록시 서버 주소가 비어있습니다.
+코드 내부 DEPLOY_CONFIG의 워커 URL을 먼저 본인의 주소로 변경 후 배포해 주세요.");
             return;
         }
 
@@ -156,7 +160,8 @@
             if (!Array.isArray(items)) items = [items];
 
             if (items.length === 0 || !items[0]) {
-                alert(`'${query}' 건물에 대한 승강기 데이터가 검색되지 않았습니다.\n건물명을 조금 더 명확하게 입력해 보세요. (예: 산울)`);
+                alert(`'${query}' 건물에 대한 승강기 데이터가 검색되지 않았습니다.
+건물명을 조금 더 명확하게 입력해 보세요. (예: 산울)`);
                 return;
             }
 
@@ -170,7 +175,8 @@
 
         } catch (error) {
             console.error("실시간 서버리스 데이터 연동 실패:", error);
-            alert("서버 인프라 통신 에러가 발생했습니다.\n클라우드플레어 워커의 배포 상태나 로그를 점검해 주세요.");
+            alert("서버 인프라 통신 에러가 발생했습니다.
+클라우드플레어 워커의 배포 상태나 로그를 점검해 주세요.");
         }
     }
 
