@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>승강기 검색 서비스 - 실시간 데이터 연동 완료</title>
+    <title>승강기 검색 서비스 - 최종 완성본</title>
     
-    <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=59f58919246c9ac3780496fc7e2c0d74"></script>
+    <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=59f58919246c9ac3780496fc7e2c0d74&autoload=false"></script>
     
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -54,7 +54,7 @@
     <div class="search-bar-wrapper">
         <div class="search-bar">
             <span class="icon-back" onclick="resetUI()">&lt;</span>
-            <input type="text" id="searchInput" placeholder="건물명 검색 (예: 산울, 시청)" onfocus="showRecentSearch()" onkeypress="handleKeyPress(event)">
+            <input type="text" id="searchInput" placeholder="건물명 검색 (예: 산울, 보람)" onfocus="showRecentSearch()" onkeypress="handleKeyPress(event)">
             <span class="icon-clear" onclick="clearSearch()">X</span>
             <span class="icon-mic">🎤</span>
             <span class="icon-search" onclick="executeSearch()">🔍</span>
@@ -64,6 +64,7 @@
             <div class="recent-title">추천 검색어 <span style="color:#888; font-size:11px; cursor:pointer;" onclick="clearRecent()">닫기</span></div>
             <div class="recent-tags">
                 <div class="tag" onclick="selectTag('산울')">산울</div>
+                <div class="tag" onclick="selectTag('보람')">보람</div>
                 <div class="tag" onclick="selectTag('세종시청')">세종시청</div>
             </div>
         </div>
@@ -100,7 +101,7 @@
     let map;
     let markers = [];
 
-    // 공공데이터 API 인프라 설정 교정 완료
+    // 2. 공공데이터 API 설정 (제공해주신 키와 주소 적용)
     const API_CONFIG = {
         SERVICE_KEY: 'bf828022bb4535034959395893c59397fff91ac219c93670610575093972289d',
         BASE_URL: 'https://apis.data.go.kr/B553664/ElevatorInformationService/getElevatorListM'
@@ -109,7 +110,7 @@
     function initMap() {
         const container = document.getElementById('map');
         const options = {
-            center: new kakao.maps.LatLng(36.4792, 127.2892), // 기본 중심축 (세종시)
+            center: new kakao.maps.LatLng(36.4792, 127.2892), // 초기 지도 위치: 세종시
             level: 4
         };
         map = new kakao.maps.Map(container, options);
@@ -126,18 +127,32 @@
         document.getElementById('recentSearchBox').style.display = 'none';
 
         try {
-            // 주신 가이드에 맞추어 주소 구분을 sido=세종, 건물명을 buld_nm 파라미터에 매핑
+            // 3. 공공데이터포털 원본 URL 생성
             const targetUrl = `${API_CONFIG.BASE_URL}?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=1&numOfRows=10&sido=${encodeURIComponent('세종')}&buld_nm=${encodeURIComponent(query)}&_type=json`;
             
-            // 신뢰도 높은 AllOrigins 프록시 우회 파이프라인 가동
-            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
+            // 4. CORS 에러 완벽 차단을 위한 프록시(/get) 적용
+            const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
             
             const response = await fetch(proxyUrl);
             if (!response.ok) throw new Error(`네트워크 통신 불안정 (코드: ${response.status})`);
             
-            const result = await response.json();
+            // 5. 프록시 JSON 래퍼 파싱
+            const wrapper = await response.json();
+            if (!wrapper.contents) {
+                throw new Error("데이터 내용이 비어있습니다.");
+            }
+
+            // 6. 실제 데이터(contents) 파싱
+            let result;
+            try {
+                result = JSON.parse(wrapper.contents);
+            } catch (e) {
+                console.error("포털 에러 응답 반환:", wrapper.contents);
+                alert("공공데이터 포털 오류: 아직 인증키가 동기화되지 않았거나 서버 점검 중일 수 있습니다.");
+                return;
+            }
             
-            // 공단 응답 규격 데이터 파싱
+            // 7. 공단 응답 규격 내 승강기 아이템 추출
             let items = result.response?.body?.items?.item || [];
             if (!Array.isArray(items)) items = [items];
 
@@ -146,9 +161,8 @@
                 return;
             }
 
-            // 필드 매핑 안정성 보강 작업 수행
+            // 8. 데이터 맵핑 및 지도 마커 표시
             const mappedData = items.map(apiData => mapApiDataToAppFormat(apiData));
-            
             renderMarkers(mappedData);
 
             if(mappedData.length > 0) {
@@ -157,7 +171,7 @@
 
         } catch (error) {
             console.error("실시간 연동 실패 리포트:", error);
-            alert("공공데이터 포털 서버 연동에 실패했습니다.\n인증키 활성화 전이거나 데이터 정제 작업 중일 수 있습니다.");
+            alert("서버 연동에 실패했습니다.\n네트워크 상태를 확인해 주세요.");
         }
     }
 
@@ -169,7 +183,7 @@
         return {
             buildingName: apiItem.buldNm || apiItem.buld_nm || "지정 건물명 없음",
             address: apiItem.address1 || apiItem.address || "세종특별자치시 관내 주소",
-            // 오픈데이터에 위경도 좌표 누락 시 세종시 기준 랜덤 분산으로 맵 깨짐 방지
+            // 오픈데이터에 위경도 좌표 누락 시 세종시 기준 랜덤 분산으로 지도 마커 겹침 방지
             lat: parseFloat(apiItem.gpsLati || apiItem.gps_lati) || 36.4792 + (Math.random() - 0.5) * 0.003,
             lng: parseFloat(apiItem.gpsLong || apiItem.gps_long) || 127.2892 + (Math.random() - 0.5) * 0.003,
             type: apiItem.elvtrDivNm || apiItem.elvtr_div_nm || "승객용",
@@ -237,7 +251,12 @@
         document.getElementById('recentSearchBox').style.display = 'none';
     }
 
-    window.onload = initMap;
+    // 9. 카카오맵 리소스 안전 로딩 처리 (콘솔 경고 제거)
+    window.onload = function() {
+        kakao.maps.load(function() {
+            initMap();
+        });
+    };
 </script>
 
 </body>
