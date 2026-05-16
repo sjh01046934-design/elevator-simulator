@@ -265,9 +265,7 @@
         document.getElementById('resWeight').innerText = data.weight;
         document.getElementById('resCapacity').innerText = data.capacity; 
         
-        const stateCell = document.getElementById('resState');
-        stateCell.innerText = data.state;
-        stateCell.style.color = data.isOperating ? "#1e4e79" : "#d32f2f";
+     
         document.getElementById('resMonitor').innerText = '실시간 상태 모니터링: [' + (data.isOperating ? '정상운행' : '정지') + ']';
 
         document.getElementById('bottomSheet').classList.add('active');
