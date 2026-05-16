@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>승강기 검색 서비스 - 실무 배포용</title>
+    <title>승강기 검색 서비스 - 실무 현장용</title>
     
-    <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=59f58919246c9ac3780496fc7e2c0d74&autoload=false"></script>
+    <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=59f58919246c9ac3780496fc7e2c0d74&libraries=services&autoload=false"></script>
     
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -81,9 +81,9 @@
             </div>
             <div class="section-title">상세 제원 및 상태 <span style="color:#777; font-size:11px; font-weight:normal; cursor:pointer;" onclick="resetUI()">닫기</span></div>
             <table class="data-table">
-                <tr><th>승강기 종류</th><td id="resType">-</td><th>정격 속도</th><td id="resSpeed">-</td></tr>
-                <tr><th>운행층수</th><td id="resFloors">-</td><th>적재하중</th><td id="resWeight">-</td></tr>
-                <tr><th>최대정원</th><td id="resCapacity">-</td><th>승강기상태</th><td id="resState" style="font-weight:bold;">-</td></tr>
+                <tr><th>승강기번호</th><td id="resElevatorNo" style="font-weight:bold; color:#1e4e79;">-</td><th>운행층수</th><td id="resFloors">-</td></tr>
+                <tr><th>승강기종류</th><td id="resType">-</td><th>적재하중</th><td id="resWeight">-</td></tr>
+                <tr><th>정격속도</th><td id="resSpeed">-</td><th>승강기상태</th><td id="resState" style="font-weight:bold;">-</td></tr>
             </table>
             <div class="check-list">
                 <div class="check-item"><input type="checkbox" id="chk1" checked disabled> <label for="chk1">비상용 엘리베이터 피트 배수시설</label></div>
@@ -100,6 +100,7 @@
 <script>
     let map;
     let markers = [];
+    let geocoder; // 카카오 주소->좌표 변환기
 
     const DEPLOY_CONFIG = {
         CLOUDFLARE_WORKER_URL: 'https://wild-river-017e.sjh01046934.workers.dev/?url=' 
@@ -117,34 +118,28 @@
             level: 4
         };
         map = new kakao.maps.Map(container, options);
+        geocoder = new kakao.maps.services.Geocoder(); // 지오코더 생성
 
         kakao.maps.event.addListener(map, 'click', function() {
             resetUI();
         });
 
-        // 지도가 초기화되자마자 전체 검색을 자동으로 한 번 실행합니다.
-        executeSearch();
+        executeSearch(); // 초기 자동 로드
     }
 
     async function executeSearch() {
         const query = document.getElementById('searchInput').value.trim();
-        
         document.getElementById('recentSearchBox').style.display = 'none';
 
-        if(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL.includes('내아이디.workers.dev')) {
-            console.error("나만의 프록시 서버 주소가 비어있습니다.");
-            return;
-        }
+        if(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL.includes('내아이디.workers.dev')) return;
 
         try {
             let targetUrl = '';
 
-            // 검색어 유무에 따른 호출 데이터 조절
+            // 카카오 Geocoder 과부하 방지를 위해 전체 검색 시 100건으로 제한, 상세 검색 시 50건
             if (query === '') {
-                // 검색어가 없으면 관내(세종) 전체 500개 호출
-                targetUrl = API_CONFIG.BASE_URL + '?serviceKey=' + API_CONFIG.SERVICE_KEY + '&pageNo=1&numOfRows=500&sido=' + encodeURIComponent('세종') + '&_type=json';
+                targetUrl = API_CONFIG.BASE_URL + '?serviceKey=' + API_CONFIG.SERVICE_KEY + '&pageNo=1&numOfRows=100&sido=' + encodeURIComponent('세종') + '&_type=json';
             } else {
-                // 검색어가 있으면 해당 건물 집중 검색 (최대 50개)
                 targetUrl = API_CONFIG.BASE_URL + '?serviceKey=' + API_CONFIG.SERVICE_KEY + '&pageNo=1&numOfRows=50&sido=' + encodeURIComponent('세종') + '&buld_nm=' + encodeURIComponent(query) + '&_type=json';
             }
             
@@ -159,43 +154,61 @@
             if (!Array.isArray(items)) items = [items];
 
             if (items.length === 0 || !items[0]) {
-                if (query !== '') alert("검색된 승강기 데이터가 없습니다. 건물명을 다시 확인해주세요.");
+                if (query !== '') alert("검색된 승강기 데이터가 없습니다.");
                 return;
             }
 
-            const mappedData = items.map(apiData => mapApiDataToAppFormat(apiData));
+            // ★ 핵심 변경: 주소 데이터를 바탕으로 진짜 GPS 좌표 변환 (비동기 처리)
+            const mappedData = await Promise.all(items.map(apiItem => {
+                return new Promise((resolve) => {
+                    const stts = apiItem.elvtrSttsNm || apiItem.elvtr_stts_nm || apiItem.elvtrStts || "상태불명";
+                    const isOperating = !(stts.includes('정지') || stts.includes('불합격') || stts.includes('고장'));
+                    const address = apiItem.address1 || apiItem.address || "";
+                    
+                    const baseData = {
+                        buildingName: apiItem.buldNm || apiItem.buld_nm || "건물명 없음",
+                        address: address,
+                        type: apiItem.elvtrDivNm || apiItem.elvtr_div_nm || "정보 없음",
+                        speed: apiItem.ratedSpeed || apiItem.rated_speed || "정보 없음",
+                        floors: apiItem.shuttleSection || apiItem.shuttle_section || "정보 없음",
+                        weight: apiItem.liveLoad || apiItem.live_load || "정보 없음",
+                        elevatorNo: apiItem.elevatorNo || apiItem.elevator_no || "번호 미상",
+                        state: stts,
+                        isOperating: isOperating,
+                        lat: 36.4792, // 변환 실패 시 기본값 (세종시청)
+                        lng: 127.2892
+                    };
+
+                    if (!address) {
+                        resolve(baseData);
+                        return;
+                    }
+
+                    // 카카오 주소->좌표 변환
+                    geocoder.addressSearch(address, function(result, status) {
+                        if (status === kakao.maps.services.Status.OK) {
+                            // 한 건물에 승강기가 여러 대일 경우 핀이 완전히 겹치지 않도록 미세한 오프셋 추가
+                            const offsetLat = (Math.random() - 0.5) * 0.0002; 
+                            const offsetLng = (Math.random() - 0.5) * 0.0002;
+                            baseData.lat = parseFloat(result[0].y) + offsetLat;
+                            baseData.lng = parseFloat(result[0].x) + offsetLng;
+                        }
+                        resolve(baseData);
+                    });
+                });
+            }));
+            
             renderMarkers(mappedData);
 
-            // 검색어를 직접 입력해서 찾은 경우에만 바텀시트를 자동으로 띄워줍니다. (초기 전체 로드 시에는 방해되지 않도록 띄우지 않음)
+            // 검색어를 넣은 경우에만 결과 하나를 자동으로 펼침
             if(query !== '' && mappedData.length > 0) {
                 openBottomSheet(mappedData[0]);
             }
 
         } catch (error) {
             console.error("데이터 연동 실패:", error);
-            // 초기 자동 실행 시 사용자에게 에러 알림이 뜨지 않도록 처리
             if (query !== '') alert("공공데이터 서버 통신 에러가 발생했습니다.");
         }
-    }
-
-    function mapApiDataToAppFormat(apiItem) {
-        const stts = apiItem.elvtrSttsNm || apiItem.elvtr_stts_nm || apiItem.elvtrStts || "정상운행";
-        const isOperating = !(stts.includes('정지') || stts.includes('불합격') || stts.includes('고장'));
-
-        return {
-            buildingName: apiItem.buldNm || apiItem.buld_nm || "지정 건물명 없음",
-            address: apiItem.address1 || apiItem.address || "세종특별자치시 관내 주소",
-            // 데이터가 겹치지 않게 미세한 랜덤 값을 주어 마커를 분산시킵니다.
-            lat: parseFloat(apiItem.gpsLati || apiItem.gps_lati) || 36.4792 + (Math.random() - 0.5) * 0.05,
-            lng: parseFloat(apiItem.gpsLong || apiItem.gps_long) || 127.2892 + (Math.random() - 0.5) * 0.05,
-            type: apiItem.elvtrDivNm || apiItem.elvtr_div_nm || "승객용",
-            speed: apiItem.ratedSpeed || apiItem.rated_speed || "1.5 m/s",
-            floors: apiItem.shuttleSection || apiItem.shuttle_section || "1F ~ 최고층",
-            weight: apiItem.liveLoad || apiItem.live_load || "1000 KG",
-            capacity: apiItem.personCnt || apiItem.person_cnt ? (apiItem.personCnt || apiItem.person_cnt) + '명' : "13인승",
-            state: stts,
-            isOperating: isOperating
-        };
     }
 
     function renderMarkers(dataArray) {
@@ -205,7 +218,7 @@
         dataArray.forEach(data => {
             const content = document.createElement('div');
             content.className = data.isOperating ? 'custom-marker' : 'custom-marker stopped';
-            content.innerHTML = data.isOperating ? '🛗 승강기 운행중' : '🛗 점검/정지';
+            content.innerHTML = data.isOperating ? '🛗 ' + data.buildingName : '🛗 ' + data.buildingName + ' (정지)';
             
             content.onclick = function() { openBottomSheet(data); };
 
@@ -219,26 +232,26 @@
             markers.push(customOverlay);
         });
         
-        // 검색결과가 1개 이상일 경우 첫 번째 마커를 중심으로 지도를 이동 (초기 전체 로드 시에는 화면 유지)
+        // 검색결과 위치로 부드럽게 지도 이동
         if(dataArray.length > 0 && document.getElementById('searchInput').value.trim() !== '') {
             map.setCenter(new kakao.maps.LatLng(dataArray[0].lat, dataArray[0].lng));
-            map.setLevel(4);
+            map.setLevel(3); // 건물을 잘 볼 수 있도록 레벨 확대
         }
     }
 
     function openBottomSheet(data) {
         document.getElementById('resStatus').innerHTML = data.isOperating ? '<span style="color:#2e7d32;">(운행중)</span>' : '<span style="color:#d32f2f;">(점검/정지)</span>';
         document.getElementById('resAddress').innerText = data.address;
+        document.getElementById('resElevatorNo').innerText = data.elevatorNo;
         document.getElementById('resType').innerText = data.type;
         document.getElementById('resSpeed').innerText = data.speed;
         document.getElementById('resFloors').innerText = data.floors;
         document.getElementById('resWeight').innerText = data.weight;
-        document.getElementById('resCapacity').innerText = data.capacity;
         
         const stateCell = document.getElementById('resState');
         stateCell.innerText = data.state;
         stateCell.style.color = data.isOperating ? "#1e4e79" : "#d32f2f";
-        document.getElementById('resMonitor').innerText = '실시간 상태 모니터링: [' + (data.isOperating ? '운행중' : '정지') + ']';
+        document.getElementById('resMonitor').innerText = '실시간 상태 모니터링: [' + (data.isOperating ? '정상운행' : '정지') + ']';
 
         document.getElementById('bottomSheet').classList.add('active');
         map.panTo(new kakao.maps.LatLng(data.lat - 0.001, data.lng));
@@ -250,7 +263,6 @@
     function clearSearch() { 
         document.getElementById('searchInput').value = ''; 
         resetUI(); 
-        // 검색어를 지울 경우 다시 전체 승강기 로드
         executeSearch();
     }
     function clearRecent() { document.getElementById('recentSearchBox').style.display = 'none'; }
