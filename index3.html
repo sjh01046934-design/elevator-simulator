@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>승강기 검색 서비스 - 현장 실무용 PRO</title>
+    <title>승강기 검색 서비스 - 실무 데이터 정제 완료</title>
     
     <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=59f58919246c9ac3780496fc7e2c0d74&libraries=services&autoload=false"></script>
     
@@ -29,7 +29,6 @@
         .info-card { background: white; border-radius: 16px 16px 0 0; padding: 16px; box-shadow: 0 -4px 15px rgba(0,0,0,0.1); border: 1px solid #e0e0e0; }
         .card-header { display: flex; align-items: center; margin-bottom: 8px; }
         
-        /* 고퀄리티 바텀시트 승강기 아이콘 배경 */
         .elevator-icon-box { color: white; background: linear-gradient(135deg, #1e4e79, #296296); width: 42px; height: 42px; display: flex; justify-content: center; align-items: center; margin-right: 12px; border-radius: 10px; box-shadow: 0 2px 6px rgba(30,78,121,0.3); }
         .status-title { font-size: 16px; font-weight: bold; color: #333; }
         .status-highlight { color: #1e4e79; font-weight: 800; font-size: 17px; }
@@ -47,7 +46,6 @@
         .parking-card { background: white; padding: 12px 16px; border-top: 1px solid #eee; display: flex; align-items: center; gap: 8px; font-weight: bold; font-size: 16px; color: #2e7d32; box-shadow: 0 -2px 5px rgba(0,0,0,0.05); padding-bottom: 24px; }
         .parking-badge { background-color: #2e7d32; color: white; border-radius: 4px; width: 20px; height: 20px; display: flex; justify-content: center; align-items: center; font-size: 12px; }
         
-        /* 맵 마커 정밀 튜닝: 가독성 높이고 클릭하기 쉽게 재설계 */
         .custom-marker { background-color: #1e4e79; color: white; padding: 4px 7px; border-radius: 6px; font-size: 11px; font-weight: bold; box-shadow: 0 3px 6px rgba(0,0,0,0.3); position: relative; white-space: nowrap; cursor: pointer; bottom: 20px; display: flex; align-items: center; gap: 4px; border: 1px solid rgba(255,255,255,0.4); transition: transform 0.1s; }
         .custom-marker:active { transform: scale(0.95); }
         .custom-marker::after { content: ''; position: absolute; bottom: -5px; left: 50%; transform: translateX(-50%); border-width: 5px 5px 0; border-style: solid; border-color: #1e4e79 transparent; display: block; width: 0; }
@@ -116,7 +114,6 @@
     let markers = [];
     let geocoder; 
 
-    // 클라우드플레어 워커 프록시 주소 설정
     const DEPLOY_CONFIG = {
         CLOUDFLARE_WORKER_URL: 'https://wild-river-017e.sjh01046934.workers.dev/?url=' 
     };
@@ -126,7 +123,6 @@
         BASE_URL: 'https://apis.data.go.kr/B553664/ElevatorInformationService/getElevatorListM'
     };
 
-    // 지도 핀 전용 미니 SVG 마커 아이콘
     const markerSvgIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16"><path d="M2 1a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V1zm1.5 1v12h9V2h-9zM5.5 4h1v8h-1V4zm4 0h1v8h-1V4z"/></svg>`;
 
     function initMap() {
@@ -170,16 +166,16 @@
             let items = result.response?.body?.items?.item || [];
             if (!Array.isArray(items)) items = [items];
 
-            // 화물용, 덤웨이터 필터링 (승객화물용은 통과)
+            // 덤웨이터 및 순수 화물용 강력 필터링
             items = items.filter(apiItem => {
-                const type = String(apiItem.elvtrDivNm || apiItem.elvtr_div_nm || "");
+                const type = String(apiItem.elvtrDivNm || apiItem.elvtrKindNm || "");
                 if (type.includes('덤웨이터')) return false;
                 if (type === '화물용' || (type.includes('화물용') && !type.includes('승객'))) return false;
                 return true;
             });
 
             if (items.length === 0) {
-                if (query !== '') alert("승객 사용 가능 승강기 데이터를 찾을 수 없습니다.");
+                if (query !== '') alert("해당 건물에 조회 가능한 승객용 승강기가 없습니다.");
                 return;
             }
 
@@ -189,50 +185,63 @@
                     const isOperating = !(stts.includes('정지') || stts.includes('불합격') || stts.includes('고장'));
                     const address = apiItem.address1 || apiItem.address || "";
                     
-                    // 1. 승강기 종류 정밀 매핑
-                    let originType = String(apiItem.elvtrDivNm || apiItem.elvtr_div_nm || "");
+                    // ==========================================
+                    // 1. 승강기 종류 강제 통제 로직 ("엘리베이터" 원천 차단)
+                    // ==========================================
+                    let rawType = String(apiItem.elvtrDivNm || apiItem.elvtrKindNm || "").trim();
                     let refinedType = "승객용"; 
                     
-                    if (originType.includes("장애인")) refinedType = "장애인용";
-                    else if (originType.includes("소방") || originType.includes("비상")) refinedType = "소방구조용";
-                    else if (originType.includes("승객") && originType.includes("화물")) refinedType = "승객화물용";
-                    else if (originType.includes("에스컬레이터")) refinedType = "에스컬레이터";
-                    else if (originType.includes("무빙워크")) refinedType = "무빙워크";
-                    else if (originType.includes("수직") && originType.includes("리프트")) refinedType = "수직형휠체어리프트";
-                    else if (originType.includes("경사") && originType.includes("리프트")) refinedType = "경사형휠체어리프트";
-                    else if (originType.includes("병원") || originType.includes("침대")) refinedType = "병원용";
-                    else if (originType.includes("승객") || originType.includes("인용")) refinedType = "승객용";
-                    else refinedType = originType || "승객용"; 
-
-                    // 2. 최대정원 무결점 추출 로직 (누락 시 하중 기반 자동 연산)
-                    let rawCapacity = apiItem.personCnt || apiItem.person_cnt || apiItem.prsonCnt || apiItem.personCount;
-                    let rawWeight = apiItem.liveLoad || apiItem.live_load || "";
-                    let finalCapacity = "정보 없음";
-
-                    if (rawCapacity && !isNaN(parseInt(rawCapacity)) && parseInt(rawCapacity) > 0) {
-                        finalCapacity = parseInt(rawCapacity) + "명";
-                    } else if (rawWeight) {
-                        // 숫자만 추출 (예: "1000 kg" -> 1000)
-                        let weightNum = parseInt(rawWeight.toString().replace(/[^0-9]/g, ''));
-                        if (!isNaN(weightNum) && weightNum > 0) {
-                            // 법정 1인당 중량 75kg 기준 역산 (소수점 내림)
-                            let calc = Math.floor(weightNum / 75);
-                            if (calc > 0) finalCapacity = calc + "명 (환산)";
-                        }
-                    }
+                    if (rawType.includes("에스컬레이터")) refinedType = "에스컬레이터";
+                    else if (rawType.includes("무빙워크")) refinedType = "무빙워크";
+                    else if (rawType.includes("수직") && rawType.includes("휠체어")) refinedType = "수직형휠체어리프트";
+                    else if (rawType.includes("경사") && rawType.includes("휠체어")) refinedType = "경사형휠체어리프트";
+                    else if (rawType.includes("장애인")) refinedType = "장애인용";
+                    else if (rawType.includes("소방") || rawType.includes("구조") || rawType.includes("비상")) refinedType = "소방구조용";
+                    else if (rawType.includes("화물") && rawType.includes("승객")) refinedType = "승객화물용";
+                    else if (rawType.includes("병원") || rawType.includes("침대")) refinedType = "병원용";
+                    else if (rawType.includes("승객") || rawType.includes("인용")) refinedType = "승객용";
                     
-                    // 구조물 계열은 정원 제외
+                    // ==========================================
+                    // 2. 적재하중 단위 중복 차단 로직 (숫자만 추출)
+                    // ==========================================
+                    let rawWeight = String(apiItem.liveLoad || apiItem.live_load || "");
+                    let weightNum = rawWeight.replace(/[^0-9]/g, ""); 
+                    let finalWeight = weightNum ? weightNum + " kg" : "-";
+
+                    // ==========================================
+                    // 3. 정격속도 단위 중복 차단 로직 (숫자와 소수점만 추출)
+                    // ==========================================
+                    let rawSpeed = String(apiItem.ratedSpeed || apiItem.rated_speed || "");
+                    let speedNum = rawSpeed.replace(/[^0-9.]/g, "");
+                    let finalSpeed = speedNum ? speedNum + " m/min" : "-";
+
+                    // ==========================================
+                    // 4. 최대정원 추출 및 데이터 완전 복구 로직
+                    // ==========================================
+                    let rawCap = String(apiItem.prsonCnt || apiItem.personCnt || apiItem.person_cnt || apiItem.personCount || "");
+                    let capNum = rawCap.replace(/[^0-9]/g, "");
+                    let finalCapacity = "-";
+
+                    if (capNum && parseInt(capNum) > 0) {
+                        // 필드에 정원 숫자가 정상적으로 있는 경우
+                        finalCapacity = parseInt(capNum) + "명";
+                    } else if (weightNum && parseInt(weightNum) > 0) {
+                        // 정원이 누락되었으나 하중이 있는 경우 (75kg 기준 역산 후 '환산' 글자 생략)
+                        finalCapacity = Math.floor(parseInt(weightNum) / 75) + "명";
+                    }
+
+                    // 에스컬레이터/무빙워크는 정원 표기 생략
                     if (refinedType === "에스컬레이터" || refinedType === "무빙워크") {
-                        finalCapacity = "구조물";
+                        finalCapacity = "-";
                     }
 
                     const baseData = {
                         buildingName: apiItem.buldNm || apiItem.buld_nm || "건물명 없음",
                         address: address,
                         type: refinedType,
-                        speed: apiItem.ratedSpeed || apiItem.rated_speed ? (apiItem.ratedSpeed || apiItem.rated_speed) + " m/min" : "-",
+                        speed: finalSpeed,
                         floors: apiItem.shuttleSection || apiItem.shuttle_section || "-",
-                        weight: rawWeight ? rawWeight + " kg" : "-",
+                        weight: finalWeight,
                         elevatorNo: apiItem.elevatorNo || apiItem.elevator_no || "번호 미상",
                         capacity: finalCapacity, 
                         state: stts,
@@ -277,7 +286,6 @@
         dataArray.forEach(data => {
             const content = document.createElement('div');
             content.className = data.isOperating ? 'custom-marker' : 'custom-marker stopped';
-            // SVG 아이콘과 텍스트의 완벽한 배치
             content.innerHTML = markerSvgIcon + `<span>${data.buildingName}${data.isOperating ? '' : ' (정지)'}</span>`;
             
             content.onclick = function() { openBottomSheet(data); };
@@ -310,7 +318,6 @@
         
         document.getElementById('resMonitor').innerText = '실시간 상태 모니터링: [' + (data.isOperating ? '정상운행' : '정지') + ']';
         
-        // 접근성 및 부가 정보 연동 (장애인용, 병원용 등)
         const isAccessible = data.type.includes("장애인") || data.type.includes("수직") || data.type.includes("병원");
         document.getElementById('chk3').nextElementSibling.innerText = `휠체어·유모차 이용: [${isAccessible ? '권장' : '가능'}]`;
 
