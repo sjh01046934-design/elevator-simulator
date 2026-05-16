@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>승강기 검색 서비스 - 상태 판독 최적화</title>
+    <title>승강기 검색 서비스 - 실무 현장용</title>
     
     <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=59f58919246c9ac3780496fc7e2c0d74&libraries=services&autoload=false"></script>
     
@@ -30,7 +30,7 @@
         
         .bottom-sheet { position: absolute; bottom: 0; left: 0; right: 0; z-index: 10; display: flex; flex-direction: column; transform: translateY(100%); transition: transform 0.3s ease-out; background: white; border-radius: 16px 16px 0 0; box-shadow: 0 -4px 15px rgba(0,0,0,0.15); border: 1px solid #e0e0e0; max-height: 80vh; }
         .bottom-sheet.active { transform: translateY(0); }
-        .info-card { padding: 16px; display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+        .info-card { padding: 16px; display: flex; flex-direction: column; height: 100%; overflow: hidden; padding-bottom: 24px; }
         .card-header { display: flex; align-items: center; margin-bottom: 8px; flex-shrink: 0; }
         
         .elevator-icon-box { width: 46px; height: 46px; display: flex; justify-content: center; align-items: center; margin-right: 12px; background: white; border-radius: 8px; border: 1px solid #e0e0e0; overflow: hidden; flex-shrink: 0;}
@@ -41,7 +41,7 @@
         
         .section-title { font-size: 14px; font-weight: bold; color: #222; margin: 12px 0 6px 0; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; border-bottom: 2px solid #1e4e79; padding-bottom: 6px; }
         
-        .elevator-list-scroll { flex-grow: 1; overflow-y: auto; padding-right: 4px; margin-bottom: 10px; border-bottom: 1px solid #eee; }
+        .elevator-list-scroll { flex-grow: 1; overflow-y: auto; padding-right: 4px; margin-bottom: 10px; }
         .elevator-list-scroll::-webkit-scrollbar { width: 6px; }
         .elevator-list-scroll::-webkit-scrollbar-thumb { background-color: #ccc; border-radius: 4px; }
         .elevator-list-scroll::-webkit-scrollbar-track { background-color: #f1f3f5; }
@@ -52,10 +52,6 @@
         .data-table th, .data-table td { border: 1px solid #d2d2d2; padding: 6px 4px; }
         .data-table th { background-color: #f8fafc; color: #444; font-weight: bold; width: 23%; }
         .data-table td { font-weight: 500; color: #111; width: 27%; }
-        
-        .check-list { font-size: 13px; color: #333; display: flex; flex-direction: column; gap: 5px; flex-shrink: 0; padding-bottom: 24px; margin-top: 4px;}
-        .check-item { display: flex; align-items: center; gap: 8px; font-weight: 500; }
-        .check-item input[type="checkbox"] { width: 16px; height: 16px; accent-color: #1e4e79; }
         
         .custom-marker { background-color: #1e4e79; color: white; padding: 4px 7px; border-radius: 6px; font-size: 11.5px; font-weight: bold; box-shadow: 0 3px 6px rgba(0,0,0,0.3); position: relative; white-space: nowrap; cursor: pointer; bottom: 20px; display: flex; align-items: center; gap: 4px; border: 1px solid rgba(255,255,255,0.4); transition: transform 0.1s; }
         .custom-marker:active { transform: scale(0.95); }
@@ -122,18 +118,14 @@
             </div>
             
             <div class="section-title">
-                <span>승강기 목록 <span id="resTotalCount" style="color:#1e4e79;">(0대)</span> <span id="resStatus" style="font-size:12px; margin-left:4px;"></span></span>
+                <span>승강기 목록 <span id="resTotalCount" style="color:#1e4e79;">(0대)</span></span>
                 <span style="color:#777; font-size:11px; font-weight:normal; cursor:pointer; background:#eee; padding:2px 8px; border-radius:10px;" onclick="resetUI()">닫기</span>
             </div>
             
             <div id="elevatorListContainer" class="elevator-list-scroll">
                 </div>
 
-            <div class="check-list">
-                <div class="check-item"><input type="checkbox" id="chk1" checked disabled> <label for="chk1">비상용 엘리베이터 피트 배수시설</label></div>
-                <div class="check-item"><input type="checkbox" id="chk3" checked disabled> <label for="chk3" id="resWheelchair">휠체어·유모차 이용 여부: [조회중]</label></div>
             </div>
-        </div>
     </div>
 </div>
 
@@ -237,7 +229,6 @@
                     });
                 }
 
-                // ★ 완벽 조치 1: '중지', '연기', '휴지', '폐기' 등 모든 정지 뉘앙스 키워드 필터링 적용
                 const stts = String(apiItem.elvtrSttsNm || apiItem.elvtr_stts_nm || apiItem.elvtrStts || "상태불명").trim();
                 const isOperating = !(
                     stts.includes('정지') || 
@@ -286,7 +277,7 @@
                     floors: apiItem.shuttleSection || apiItem.shuttle_section || "-",
                     weight: finalWeight,
                     capacity: finalCapacity,
-                    state: stts, // ★ 완벽 조치 2: 가공하지 않은 원본 상태값(stts)을 그대로 저장!
+                    state: stts, 
                     isOperating: isOperating
                 });
             });
@@ -354,24 +345,13 @@
         document.getElementById('resBuildingName').innerText = groupData.buildingName;
         document.getElementById('resAddress').innerText = groupData.address;
         document.getElementById('resTotalCount').innerText = `(${groupData.elevators.length}대)`;
-        
-        const isAnyStopped = groupData.elevators.some(e => !e.isOperating);
-        document.getElementById('resStatus').innerHTML = isAnyStopped ? '<span style="color:#d32f2f;">[점검요망]</span>' : '<span style="color:#2e7d32;">[전체정상]</span>';
 
         const listContainer = document.getElementById('elevatorListContainer');
         listContainer.innerHTML = ''; 
-        
-        let hasWheelchair = false;
 
         groupData.elevators.forEach((elv, index) => {
-            if (elv.type.includes("장애") || elv.type.includes("리프트") || elv.type.includes("병원")) {
-                hasWheelchair = true;
-            }
-
             const stateColor = elv.isOperating ? "#1e4e79" : "#d32f2f";
             
-            // ★ 완벽 조치 2 적용: 상태 텍스트에 하드코딩된 '정지/정상운행' 대신 elv.state 원본 텍스트 노출!
-            // 다만 '합격' 같은 단순한 글자만 있을 땐 보기 좋게 가공
             let displayStateText = elv.state;
             if (elv.isOperating && (elv.state === "합격" || elv.state === "상태불명")) {
                 displayStateText = "정상운행";
@@ -391,10 +371,7 @@
             listContainer.innerHTML += tableHtml;
         });
 
-        document.getElementById('resWheelchair').innerText = `휠체어·유모차 이용: [${hasWheelchair ? '권장(가능 기기 보유)' : '일반'}]`;
-
         document.getElementById('bottomSheet').classList.add('active');
-        
         map.panTo(new kakao.maps.LatLng(groupData.lat - 0.002, groupData.lng));
     }
 
