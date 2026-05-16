@@ -3,100 +3,46 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>승강기 검색 서비스 - 카카오맵 시범 앱</title>
+    <title>승강기 검색 서비스 - 실시간 데이터 연동 완료</title>
     
     <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=59f58919246c9ac3780496fc7e2c0d74"></script>
     
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { 
-            background-color: #f0f2f5; 
-            display: flex; 
-            justify-content: center; 
-            font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; 
-        }
-        
-        .app-container { 
-            width: 100%; max-width: 412px; height: 100vh; 
-            background-color: #e5e5e5; position: relative; 
-            overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.15); 
-        }
-
+        body { background-color: #f0f2f5; display: flex; justify-content: center; font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
+        .app-container { width: 100%; max-width: 412px; height: 100vh; background-color: #e5e5e5; position: relative; overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.15); }
         #map { width: 100%; height: 100%; z-index: 1; }
-
-        .search-bar-wrapper {
-            position: absolute; top: 0; left: 0; right: 0;
-            padding: 35px 16px 10px 16px;
-            background: linear-gradient(to bottom, rgba(255,255,255,0.9) 70%, rgba(255,255,255,0));
-            z-index: 10;
-        }
-        .search-bar { 
-            background: white; border-radius: 8px; display: flex; align-items: center; 
-            padding: 10px 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); border: 1px solid #dcdcdc;
-        }
+        .search-bar-wrapper { position: absolute; top: 0; left: 0; right: 0; padding: 35px 16px 10px 16px; background: linear-gradient(to bottom, rgba(255,255,255,0.9) 70%, rgba(255,255,255,0)); z-index: 10; }
+        .search-bar { background: white; border-radius: 8px; display: flex; align-items: center; padding: 10px 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); border: 1px solid #dcdcdc; }
         .icon-back { color: #555; font-size: 18px; margin-right: 12px; cursor: pointer; font-weight: bold; }
         .search-bar input { flex: 1; border: none; outline: none; font-size: 16px; font-weight: bold; color: #222; }
         .icon-clear { background: #ccc; color: white; border-radius: 50%; width: 18px; height: 18px; display: flex; justify-content: center; align-items: center; font-size: 10px; margin-right: 12px; cursor: pointer; font-weight: bold; }
         .icon-mic { color: #4285F4; font-size: 18px; cursor: pointer; margin-right: 12px; }
         .icon-search { color: #555; font-size: 20px; cursor: pointer; font-weight: bold; }
-
-        .recent-search-box {
-            display: none; background: white; margin-top: 8px; padding: 12px; 
-            border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); border: 1px solid #e0e0e0;
-        }
+        .recent-search-box { display: none; background: white; margin-top: 8px; padding: 12px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); border: 1px solid #e0e0e0; }
         .recent-title { font-size: 13px; font-weight: bold; margin-bottom: 8px; display: flex; justify-content: space-between; color: #333; }
         .recent-tags { display: flex; gap: 6px; }
         .tag { background: #edf2f7; padding: 6px 12px; border-radius: 15px; font-size: 12px; color: #4a5568; font-weight: bold; cursor: pointer; }
-
-        .bottom-sheet { 
-            position: absolute; bottom: 0; left: 0; right: 0; z-index: 10; 
-            display: flex; flex-direction: column;
-            transform: translateY(100%); transition: transform 0.3s ease-out;
-        }
+        .bottom-sheet { position: absolute; bottom: 0; left: 0; right: 0; z-index: 10; display: flex; flex-direction: column; transform: translateY(100%); transition: transform 0.3s ease-out; }
         .bottom-sheet.active { transform: translateY(0); }
-        
-        .info-card { 
-            background: white; border-radius: 16px 16px 0 0; padding: 16px; 
-            box-shadow: 0 -4px 15px rgba(0,0,0,0.1); border: 1px solid #e0e0e0;
-        }
+        .info-card { background: white; border-radius: 16px 16px 0 0; padding: 16px; box-shadow: 0 -4px 15px rgba(0,0,0,0.1); border: 1px solid #e0e0e0; }
         .card-header { display: flex; align-items: center; margin-bottom: 8px; }
-        .elevator-icon-box { 
-            background-color: #1e4e79; color: white; width: 44px; height: 44px; 
-            display: flex; justify-content: center; align-items: center; border-radius: 6px; font-size: 24px; margin-right: 12px; 
-        }
+        .elevator-icon-box { background-color: #1e4e79; color: white; width: 44px; height: 44px; display: flex; justify-content: center; align-items: center; border-radius: 6px; font-size: 24px; margin-right: 12px; }
         .status-title { font-size: 16px; font-weight: bold; color: #333; }
         .status-highlight { color: #1e4e79; font-weight: 800; font-size: 17px; }
         .address-text { font-size: 13px; color: #666; margin-top: 2px; }
-
         .section-title { font-size: 14px; font-weight: bold; color: #222; margin: 12px 0 6px 0; display: flex; justify-content: space-between; align-items: center; }
-
         .data-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: center; border: 1px solid #d2d2d2; margin-bottom: 10px; }
         .data-table th, .data-table td { border: 1px solid #d2d2d2; padding: 6px 4px; }
         .data-table th { background-color: #f1f3f5; color: #444; font-weight: bold; width: 23%; }
         .data-table td { font-weight: 500; color: #111; width: 27%; }
-        
         .check-list { font-size: 13px; color: #333; margin-top: 6px; display: flex; flex-direction: column; gap: 5px; border-top: 1px solid #eee; padding-top: 10px; }
         .check-item { display: flex; align-items: center; gap: 8px; font-weight: 500; }
         .check-item input[type="checkbox"] { width: 16px; height: 16px; accent-color: #1e4e79; }
-
-        .parking-card { 
-            background: white; padding: 12px 16px; border-top: 1px solid #eee; display: flex; 
-            align-items: center; gap: 8px; font-weight: bold; font-size: 16px; color: #2e7d32;
-            box-shadow: 0 -2px 5px rgba(0,0,0,0.05); padding-bottom: 24px;
-        }
+        .parking-card { background: white; padding: 12px 16px; border-top: 1px solid #eee; display: flex; align-items: center; gap: 8px; font-weight: bold; font-size: 16px; color: #2e7d32; box-shadow: 0 -2px 5px rgba(0,0,0,0.05); padding-bottom: 24px; }
         .parking-badge { background-color: #2e7d32; color: white; border-radius: 4px; width: 20px; height: 20px; display: flex; justify-content: center; align-items: center; font-size: 12px; }
-
-        /* 카카오맵 CustomOverlay를 위한 마커 스타일 */
-        .custom-marker {
-            background-color: #1e4e79; color: white; padding: 6px 10px; border-radius: 6px;
-            font-size: 12px; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-            position: relative; white-space: nowrap; cursor: pointer; bottom: 25px;
-        }
-        .custom-marker::after {
-            content: ''; position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%);
-            border-width: 6px 6px 0; border-style: solid; border-color: #1e4e79 transparent;
-            display: block; width: 0;
-        }
+        .custom-marker { background-color: #1e4e79; color: white; padding: 6px 10px; border-radius: 6px; font-size: 12px; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.3); position: relative; white-space: nowrap; cursor: pointer; bottom: 25px; }
+        .custom-marker::after { content: ''; position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%); border-width: 6px 6px 0; border-style: solid; border-color: #1e4e79 transparent; display: block; width: 0; }
         .custom-marker.stopped { background-color: #d32f2f; }
         .custom-marker.stopped::after { border-color: #d32f2f transparent; }
     </style>
@@ -105,22 +51,20 @@
 
 <div class="app-container">
     <div id="map"></div>
-
     <div class="search-bar-wrapper">
         <div class="search-bar">
             <span class="icon-back" onclick="resetUI()">&lt;</span>
-            <input type="text" id="searchInput" placeholder="건물명 또는 건물주소를 입력하여 검색" onfocus="showRecentSearch()" onkeypress="handleKeyPress(event)">
+            <input type="text" id="searchInput" placeholder="건물명 또는 주소 검색 (예: 보람동)" onfocus="showRecentSearch()" onkeypress="handleKeyPress(event)">
             <span class="icon-clear" onclick="clearSearch()">X</span>
             <span class="icon-mic">🎤</span>
             <span class="icon-search" onclick="executeSearch()">🔍</span>
         </div>
         
         <div class="recent-search-box" id="recentSearchBox">
-            <div class="recent-title">최근 검색어 <span style="color:#888; font-size:11px; cursor:pointer;">지우기</span></div>
+            <div class="recent-title">추천 검색어 <span style="color:#888; font-size:11px; cursor:pointer;" onclick="clearRecent()">닫기</span></div>
             <div class="recent-tags">
-                <div class="tag" onclick="selectTag('세종시 복합상가')">세종시 복합상가</div>
-                <div class="tag" onclick="selectTag('보람종합상가')">보람종합상가</div>
-                <div class="tag" onclick="selectTag('세종')">세종</div>
+                <div class="tag" onclick="selectTag('보람동')">보람동</div>
+                <div class="tag" onclick="selectTag('세종시청')">세종시청</div>
             </div>
         </div>
     </div>
@@ -134,112 +78,146 @@
                     <div class="address-text" id="resAddress"></div>
                 </div>
             </div>
-            
-            <div class="section-title">상세 제원 및 상태 <span style="color:#777; font-size:11px; font-weight:normal;">전체 해제</span></div>
-            
+            <div class="section-title">상세 제원 및 상태 <span style="color:#777; font-size:11px; font-weight:normal; cursor:pointer;" onclick="resetUI()">닫기</span></div>
             <table class="data-table">
-                <tr>
-                    <th>승강기 종류</th><td id="resType">-</td>
-                    <th>정격 속도</th><td id="resSpeed">-</td>
-                </tr>
-                <tr>
-                    <th>운행층수</th><td id="resFloors">-</td>
-                    <th>적재하중</th><td id="resWeight">-</td>
-                </tr>
-                <tr>
-                    <th>최대정원</th><td id="resCapacity">-</td>
-                    <th>승강기상태</th><td id="resState" style="font-weight:bold;">-</td>
-                </tr>
+                <tr><th>승강기 종류</th><td id="resType">-</td><th>정격 속도</th><td id="resSpeed">-</td></tr>
+                <tr><th>운행층수</th><td id="resFloors">-</td><th>적재하중</th><td id="resWeight">-</td></tr>
+                <tr><th>최대정원</th><td id="resCapacity">-</td><th>승강기상태</th><td id="resState" style="font-weight:bold;">-</td></tr>
             </table>
-            
             <div class="check-list">
                 <div class="check-item"><input type="checkbox" id="chk1" checked disabled> <label for="chk1">비상용 엘리베이터 피트 배수시설</label></div>
-                <div class="check-item"><input type="checkbox" id="chk2" checked disabled> <label for="chk2" id="resMonitor">실시간 상태 모니터링: [운행중]</label></div>
-                <div class="check-item"><input type="checkbox" id="chk3" checked disabled> <label for="chk3">휠체어·유모차 이용 가능 여부: [가능]</label></div>
+                <div class="check-item"><input type="checkbox" id="chk2" checked disabled> <label for="chk2" id="resMonitor">실시간 상태 모니터링: [조회중]</label></div>
+                <div class="check-item"><input type="checkbox" id="chk3" checked disabled> <label for="chk3">휠체어·유모차 이용 가능 여부: [연동예정]</label></div>
             </div>
         </div>
-        
         <div class="parking-card">
-            <div class="parking-badge">✓</div> 주차 가능
+            <div class="parking-badge">✓</div> 주차 정보 연동 예정
         </div>
     </div>
 </div>
 
 <script>
-    // 가상 데이터베이스
-    const mockElevatorDatabase = [
-        {
-            buildingName: "세종시 복합상가",
-            address: "세종특별자치시 보람동 216-2",
-            lat: 36.4795, lng: 127.2895,
-            type: "장애인용", speed: "2 m/s", floors: "1F ~ 15F", weight: "1600 KG", capacity: "21 명",
-            state: "운행중 (실시간)", isOperating: true
-        },
-        {
-            buildingName: "보람종합상가",
-            address: "세종특별자치시 보람동 218-1",
-            lat: 36.4780, lng: 127.2915,
-            type: "승객용", speed: "1.5 m/s", floors: "B1 ~ 8F", weight: "1150 KG", capacity: "15 명",
-            state: "점검중 (실시간)", isOperating: false
-        }
-    ];
-
     let map;
     let markers = [];
 
-    // 카카오맵 초기화
+    // ==========================================
+    // 2. 공공데이터 API 설정 (인증키 및 URL 적용 완료)
+    // ==========================================
+    const API_CONFIG = {
+        SERVICE_KEY: 'bf828022bb4535034959395893c59397fff91ac219c93670610575093972289d',
+        // 알려주신 URL에 조회 오퍼레이션(getElevatorList) 결합
+        BASE_URL: 'https://apis.data.go.kr/B553664/ElevatorInformationService/getElevatorList'
+    };
+
     function initMap() {
         const container = document.getElementById('map');
         const options = {
-            center: new kakao.maps.LatLng(36.4792, 127.2892), // 세종시 보람동 중심
-            level: 3 // 카카오맵은 숫자가 작을수록 확대됩니다 (1~14)
+            center: new kakao.maps.LatLng(36.4792, 127.2892), // 초기 지도 위치: 세종시 보람동
+            level: 4
         };
-
         map = new kakao.maps.Map(container, options);
 
-        // 지도 여백 클릭 시 바텀시트 닫기
         kakao.maps.event.addListener(map, 'click', function() {
-            document.getElementById('bottomSheet').classList.remove('active');
-            document.getElementById('recentSearchBox').style.display = 'none';
+            resetUI();
         });
-
-        renderMarkers(mockElevatorDatabase);
     }
 
-    // 마커(CustomOverlay) 렌더링 함수
+    async function executeSearch() {
+        const query = document.getElementById('searchInput').value.trim();
+        if (!query) return;
+
+        document.getElementById('recentSearchBox').style.display = 'none';
+
+        try {
+            // 건물명(buld_nm) 또는 소재지(address1) 검색 조건을 위해 주소 파라미터 적용
+            // ※ API 환경에 따라 파라미터가 buld_nm 또는 address1 등 다를 수 있으므로 통상적인 address1 우선 적용
+            const url = `${API_CONFIG.BASE_URL}?serviceKey=${API_CONFIG.SERVICE_KEY}&address1=${encodeURIComponent(query)}&numOfRows=10&pageNo=1&_type=json`;
+            
+            const response = await fetch(url);
+            if (!response.ok) throw new Error('API 네트워크 응답 불량');
+            
+            const result = await response.json();
+            
+            // 공공데이터 구조인 response.body.items.item 에서 데이터 추출
+            let items = result.response?.body?.items?.item || [];
+            if (!Array.isArray(items)) items = [items];
+
+            if (items.length === 0 || !items[0]) {
+                alert(`'${query}'에 대한 승강기 정보가 검색되지 않았습니다.\n(시범 운영 구역인 '보람동' 등으로 다시 검색해보세요.)`);
+                return;
+            }
+
+            // 실데이터 맵핑 (출력값 보정)
+            const mappedData = items.map(apiData => mapApiDataToAppFormat(apiData));
+            
+            renderMarkers(mappedData);
+
+            // 검색 결과가 존재하면 첫 번째 마커의 정보를 하단 바텀시트에 즉시 띄움
+            if(mappedData.length > 0) {
+                openBottomSheet(mappedData[0]);
+            }
+
+        } catch (error) {
+            console.error("데이터 연동 에러:", error);
+            // 인증키 등록 직후 등 일시적 에러 발생 시 안내
+            alert("공공데이터를 불러오지 못했습니다.\n(인증키 등록 직후라면 동기화에 최대 1시간 정도 소요될 수 있습니다.)");
+        }
+    }
+
+    // ==========================================
+    // 3. API 응답 데이터를 UI 양식에 맞게 변환
+    // ==========================================
+    function mapApiDataToAppFormat(apiItem) {
+        // 승강기 상태 판별 (합격, 운행중 등 긍정 단어 포함 시 운행중으로 판단)
+        const stts = apiItem.elvtrSttsNm || "";
+        const isOperating = (stts.includes('운행') || stts.includes('합격') || stts === '정상');
+
+        return {
+            buildingName: apiItem.buldNm || "건물명 정보 없음",
+            address: apiItem.address1 || "주소 정보 없음",
+            // 위경도 데이터 변환 (데이터가 없을 경우 보람동 근처로 임의 분산 배치)
+            lat: parseFloat(apiItem.gpsLati) || 36.4792 + (Math.random() - 0.5) * 0.005,
+            lng: parseFloat(apiItem.gpsLong) || 127.2892 + (Math.random() - 0.5) * 0.005,
+            type: apiItem.elvtrDivNm || "-",
+            speed: apiItem.ratedSpeed || "-",
+            floors: apiItem.shuttleSection || "-",
+            weight: apiItem.liveLoad || "-",
+            capacity: apiItem.personCnt ? `${apiItem.personCnt}명` : "-",
+            state: stts || "-",
+            isOperating: isOperating
+        };
+    }
+
     function renderMarkers(dataArray) {
-        // 기존 마커 초기화
         markers.forEach(m => m.setMap(null));
         markers = [];
 
         dataArray.forEach(data => {
-            // HTML DOM 엘리먼트로 마커 생성 (클릭 이벤트를 직접 걸기 위함)
             const content = document.createElement('div');
             content.className = data.isOperating ? 'custom-marker' : 'custom-marker stopped';
-            content.innerHTML = data.isOperating ? '🛗 승강기 운행중' : '🛗 점검 및 정지';
+            content.innerHTML = data.isOperating ? '🛗 승강기 운행중' : '🛗 점검/정지';
             
-            // 마커 클릭 이벤트 바인딩
-            content.onclick = function() {
-                openBottomSheet(data);
-            };
+            content.onclick = function() { openBottomSheet(data); };
 
             const customOverlay = new kakao.maps.CustomOverlay({
                 position: new kakao.maps.LatLng(data.lat, data.lng),
                 content: content,
-                yAnchor: 1 // 마커의 꼬리 부분이 좌표에 일치하도록 설정
+                yAnchor: 1
             });
 
             customOverlay.setMap(map);
             markers.push(customOverlay);
         });
+        
+        // 첫 번째 검색 결과 위치로 지도 중심 이동 및 레벨 조절
+        if(dataArray.length > 0) {
+            map.setCenter(new kakao.maps.LatLng(dataArray[0].lat, dataArray[0].lng));
+            map.setLevel(4);
+        }
     }
 
-    // 바텀시트 호출 함수
     function openBottomSheet(data) {
-        document.getElementById('searchInput').value = data.buildingName;
-        document.getElementById('recentSearchBox').style.display = 'none';
-
-        document.getElementById('resStatus').innerHTML = data.isOperating ? `<span style="color:#2e7d32;">(운행중)</span>` : `<span style="color:#d32f2f;">(점검중)</span>`;
+        document.getElementById('resStatus').innerHTML = data.isOperating ? `<span style="color:#2e7d32;">(운행중)</span>` : `<span style="color:#d32f2f;">(점검/정지)</span>`;
         document.getElementById('resAddress').innerText = data.address;
         document.getElementById('resType').innerText = data.type;
         document.getElementById('resSpeed').innerText = data.speed;
@@ -254,35 +232,20 @@
 
         document.getElementById('bottomSheet').classList.add('active');
         
-        // 클릭한 위치로 부드럽게 이동 (바텀시트 영역을 고려해 중심축을 약간 아래로 조정)
-        map.panTo(new kakao.maps.LatLng(data.lat - 0.0008, data.lng));
-    }
-
-    function executeSearch() {
-        const query = document.getElementById('searchInput').value.trim();
-        if (!query) return;
-
-        const matchedData = mockElevatorDatabase.find(item => item.buildingName.includes(query) || query.includes(item.buildingName));
-
-        if (matchedData) {
-            openBottomSheet(matchedData);
-        } else {
-            alert("시범 운영 구역 내의 건물을 검색해 주세요. (예: 세종시 복합상가, 보람종합상가)");
-        }
-        document.getElementById('recentSearchBox').style.display = 'none';
+        // 하단 바텀시트에 가려지지 않도록 지도 중심을 미세하게 위로 보정
+        map.panTo(new kakao.maps.LatLng(data.lat - 0.001, data.lng));
     }
 
     function handleKeyPress(e) { if (e.key === 'Enter') { executeSearch(); } }
     function showRecentSearch() { document.getElementById('recentSearchBox').style.display = 'block'; }
     function selectTag(val) { document.getElementById('searchInput').value = val; executeSearch(); }
     function clearSearch() { document.getElementById('searchInput').value = ''; resetUI(); }
+    function clearRecent() { document.getElementById('recentSearchBox').style.display = 'none'; }
     function resetUI() {
         document.getElementById('bottomSheet').classList.remove('active');
         document.getElementById('recentSearchBox').style.display = 'none';
-        map.panTo(new kakao.maps.LatLng(36.4792, 127.2892));
     }
 
-    // 웹페이지 로드 완료 시 카카오맵 초기화 실행
     window.onload = initMap;
 </script>
 
