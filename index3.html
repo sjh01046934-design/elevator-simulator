@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>승강기 검색 서비스 - 검색 필터링 완벽 최적화</title>
+    <title>승강기 검색 서비스 - 전국구 지원 버전</title>
     
     <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=59f58919246c9ac3780496fc7e2c0d74&libraries=services&autoload=false"></script>
     
@@ -13,20 +13,23 @@
         .app-container { width: 100%; max-width: 412px; height: 100vh; background-color: #e5e5e5; position: relative; overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.15); }
         #map { width: 100%; height: 100%; z-index: 1; }
         .search-bar-wrapper { position: absolute; top: 0; left: 0; right: 0; padding: 35px 16px 10px 16px; background: linear-gradient(to bottom, rgba(255,255,255,0.9) 70%, rgba(255,255,255,0)); z-index: 10; }
-        .search-bar { background: white; border-radius: 8px; display: flex; align-items: center; padding: 10px 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); border: 1px solid #dcdcdc; }
-        .icon-back { color: #555; font-size: 18px; margin-right: 12px; cursor: pointer; font-weight: bold; }
-        .search-bar input { flex: 1; border: none; outline: none; font-size: 16px; font-weight: bold; color: #222; }
+        
+        /* 검색바 영역에 지역 선택(Select) 추가를 위한 레이아웃 수정 */
+        .search-bar { background: white; border-radius: 8px; display: flex; align-items: center; padding: 8px 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); border: 1px solid #dcdcdc; }
+        .sido-select { border: none; border-right: 1px solid #ddd; background: transparent; font-size: 14px; font-weight: bold; color: #1e4e79; outline: none; padding-right: 8px; margin-right: 8px; cursor: pointer; }
+        .search-bar input { flex: 1; border: none; outline: none; font-size: 15px; font-weight: bold; color: #222; }
+        
         .icon-clear { background: #ccc; color: white; border-radius: 50%; width: 18px; height: 18px; display: flex; justify-content: center; align-items: center; font-size: 10px; margin-right: 12px; cursor: pointer; font-weight: bold; }
-        .icon-mic { color: #4285F4; font-size: 18px; cursor: pointer; margin-right: 12px; }
         .icon-search { color: #555; font-size: 20px; cursor: pointer; font-weight: bold; }
         
         #searchLoadingMsg { display: none; text-align: center; font-size: 12px; font-weight: bold; color: #1e4e79; margin-top: 8px; background: rgba(255,255,255,0.9); padding: 4px; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
 
         .recent-search-box { display: none; background: white; margin-top: 8px; padding: 12px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); border: 1px solid #e0e0e0; }
         .recent-title { font-size: 13px; font-weight: bold; margin-bottom: 8px; display: flex; justify-content: space-between; color: #333; }
-        .recent-tags { display: flex; gap: 6px; }
+        .recent-tags { display: flex; flex-wrap: wrap; gap: 6px; }
         .tag { background: #edf2f7; padding: 6px 12px; border-radius: 15px; font-size: 12px; color: #4a5568; font-weight: bold; cursor: pointer; }
         
+        /* 바텀시트 및 스크롤 디자인 */
         .bottom-sheet { position: absolute; bottom: 0; left: 0; right: 0; z-index: 10; display: flex; flex-direction: column; transform: translateY(100%); transition: transform 0.3s ease-out; background: white; border-radius: 16px 16px 0 0; box-shadow: 0 -4px 15px rgba(0,0,0,0.15); border: 1px solid #e0e0e0; max-height: 80vh; }
         .bottom-sheet.active { transform: translateY(0); }
         .info-card { padding: 16px; display: flex; flex-direction: column; height: 100%; overflow: hidden; }
@@ -70,21 +73,40 @@
 
     <div class="search-bar-wrapper">
         <div class="search-bar">
-            <span class="icon-back" onclick="resetUI()">&lt;</span>
+            <select id="sidoSelector" class="sido-select" onchange="document.getElementById('searchInput').focus()">
+                <option value="세종" selected>세종</option>
+                <option value="서울">서울</option>
+                <option value="경기">경기</option>
+                <option value="인천">인천</option>
+                <option value="부산">부산</option>
+                <option value="대구">대구</option>
+                <option value="광주">광주</option>
+                <option value="대전">대전</option>
+                <option value="울산">울산</option>
+                <option value="강원">강원</option>
+                <option value="충북">충북</option>
+                <option value="충남">충남</option>
+                <option value="전북">전북</option>
+                <option value="전남">전남</option>
+                <option value="경북">경북</option>
+                <option value="경남">경남</option>
+                <option value="제주">제주</option>
+            </select>
             <input type="text" id="searchInput" placeholder="주소 또는 건물명 검색" onfocus="showRecentSearch()" onkeypress="handleKeyPress(event)">
             <span class="icon-clear" onclick="clearSearch()">X</span>
-            <span class="icon-mic">🎤</span>
             <span class="icon-search" onclick="executeSearch()">🔍</span>
         </div>
         
-        <div id="searchLoadingMsg">⏳ 서버에서 최신 데이터를 검색 중입니다...</div>
+        <div id="searchLoadingMsg">⏳ 전국 서버에서 실시간 검색 중입니다...</div>
         
         <div class="recent-search-box" id="recentSearchBox">
             <div class="recent-title">추천 검색어 <span style="color:#888; font-size:11px; cursor:pointer;" onclick="clearRecent()">닫기</span></div>
             <div class="recent-tags">
-                <div class="tag" onclick="selectTag('산울')">산울</div>
-                <div class="tag" onclick="selectTag('보람동')">보람동</div>
-                <div class="tag" onclick="selectTag('세종시청')">세종시청</div>
+                <div class="tag" onclick="selectTag('세종', '산울')">세종 산울</div>
+                <div class="tag" onclick="selectTag('세종', '보람동')">세종 보람동</div>
+                <div class="tag" onclick="selectTag('서울', '강남')">서울 강남</div>
+                <div class="tag" onclick="selectTag('경기', '판교')">경기 판교</div>
+                <div class="tag" onclick="selectTag('부산', '해운대')">부산 해운대</div>
             </div>
         </div>
     </div>
@@ -127,76 +149,71 @@
     const markerSvgIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16"><path d="M2 1a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V1zm1.5 1v12h9V2h-9zM5.5 4h1v8h-1V4zm4 0h1v8h-1V4z"/></svg>`;
 
     function initMap() {
+        // 앱 구동 시 초기 지도는 대한민국의 대략적인 중심으로 설정 (대전/세종 인근)
         const container = document.getElementById('map');
-        const options = { center: new kakao.maps.LatLng(36.4792, 127.2892), level: 4 };
+        const options = { center: new kakao.maps.LatLng(36.4792, 127.2892), level: 5 };
         map = new kakao.maps.Map(container, options);
         geocoder = new kakao.maps.services.Geocoder(); 
 
         kakao.maps.event.addListener(map, 'click', function() { resetUI(); });
-        executeSearch();
     }
 
     async function executeSearch() {
         const query = document.getElementById('searchInput').value.trim();
+        const sido = document.getElementById('sidoSelector').value; // ★ 선택한 지역값 가져오기
+        
         document.getElementById('recentSearchBox').style.display = 'none';
 
         if(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL.includes('내아이디.workers.dev')) return;
+
+        if (query === '') {
+            alert("조회할 주소나 건물명을 입력해주세요.\n(예: 강남, 판교, 해운대 등)");
+            return;
+        }
 
         try {
             let items = [];
             document.getElementById('searchLoadingMsg').style.display = 'block';
 
-            if (query === '') {
-                // 초기 실행 시에는 가장 최근 100건만 가볍게 호출
-                const targetUrl = API_CONFIG.BASE_URL + '?serviceKey=' + API_CONFIG.SERVICE_KEY + '&pageNo=1&numOfRows=100&sido=' + encodeURIComponent('세종') + '&_type=json';
-                const proxyUrl = DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(targetUrl);
-                const response = await fetch(proxyUrl);
-                const result = await response.json();
-                items = result.response?.body?.items?.item || [];
-                if (!Array.isArray(items)) items = [items];
-            } else {
-                // 검색어 입력 시: 서버 과부하를 피하기 위해 500개씩만 요청
-                const MAX_ROWS = 500; 
-                const urlBuld = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=1&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent('세종') + '&buld_nm=' + encodeURIComponent(query) + '&_type=json';
-                const urlAddr = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=1&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent('세종') + '&address1=' + encodeURIComponent(query) + '&_type=json';
+            // ★ 지역(sido) 변수를 URL에 동적으로 반영하여 전국 어디든 검색 가능
+            const MAX_ROWS = 500; 
+            const urlBuld = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=1&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(sido) + '&buld_nm=' + encodeURIComponent(query) + '&_type=json';
+            const urlAddr = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=1&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(sido) + '&address1=' + encodeURIComponent(query) + '&_type=json';
 
-                const proxyBuld = DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlBuld);
-                const proxyAddr = DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlAddr);
+            const proxyBuld = DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlBuld);
+            const proxyAddr = DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlAddr);
 
-                const [resBuld, resAddr] = await Promise.all([
-                    fetch(proxyBuld).then(res => res.ok ? res.json() : {}),
-                    fetch(proxyAddr).then(res => res.ok ? res.json() : {})
-                ]);
+            const [resBuld, resAddr] = await Promise.all([
+                fetch(proxyBuld).then(res => res.ok ? res.json() : {}),
+                fetch(proxyAddr).then(res => res.ok ? res.json() : {})
+            ]);
 
-                let itemsBuld = resBuld.response?.body?.items?.item || [];
-                let itemsAddr = resAddr.response?.body?.items?.item || [];
-                if (!Array.isArray(itemsBuld)) itemsBuld = [itemsBuld];
-                if (!Array.isArray(itemsAddr)) itemsAddr = [itemsAddr];
+            let itemsBuld = resBuld.response?.body?.items?.item || [];
+            let itemsAddr = resAddr.response?.body?.items?.item || [];
+            if (!Array.isArray(itemsBuld)) itemsBuld = [itemsBuld];
+            if (!Array.isArray(itemsAddr)) itemsAddr = [itemsAddr];
 
-                // 1. 가져온 두 데이터를 하나로 합칩니다.
-                let combinedItems = [...itemsBuld, ...itemsAddr];
-                
-                // ★ 2. 가장 중요한 핵심: 공단 서버가 검색어를 무시하고 엉뚱한 기본 500개를 던져주더라도, 
-                // 우리 앱 안에서 검색어가 포함된 진짜 데이터만 '2차 필터링'으로 완벽하게 걸러냅니다!
-                const loweredQuery = query.toLowerCase();
-                combinedItems = combinedItems.filter(item => {
-                    const buldNm = String(item.buldNm || item.buld_nm || "").toLowerCase();
-                    const address = String(item.address1 || item.address || "").toLowerCase();
-                    return buldNm.includes(loweredQuery) || address.includes(loweredQuery);
-                });
+            let combinedItems = [...itemsBuld, ...itemsAddr];
+            
+            // 앱 내부 2차 필터링 (가짜 데이터 차단)
+            const loweredQuery = query.toLowerCase();
+            combinedItems = combinedItems.filter(item => {
+                const buldNm = String(item.buldNm || item.buld_nm || "").toLowerCase();
+                const address = String(item.address1 || item.address || "").toLowerCase();
+                return buldNm.includes(loweredQuery) || address.includes(loweredQuery);
+            });
 
-                // 3. 고유번호(elevatorNo) 기준으로 중복 제거
-                const uniqueMap = new Map();
-                combinedItems.forEach(item => {
-                    const elvNo = item.elevatorNo || item.elevator_no;
-                    if (elvNo && !uniqueMap.has(elvNo)) uniqueMap.set(elvNo, item);
-                });
-                items = Array.from(uniqueMap.values());
-            }
-
+            // 고유번호 중복 제거
+            const uniqueMap = new Map();
+            combinedItems.forEach(item => {
+                const elvNo = item.elevatorNo || item.elevator_no;
+                if (elvNo && !uniqueMap.has(elvNo)) uniqueMap.set(elvNo, item);
+            });
+            items = Array.from(uniqueMap.values());
+            
             document.getElementById('searchLoadingMsg').style.display = 'none';
 
-            // 화물용, 덤웨이터 제외 로직
+            // 화물용 제외 로직
             items = items.filter(apiItem => {
                 const type = String(apiItem.elvtrKindNm || apiItem.elvtrDivNm || "");
                 if (type.includes('덤웨이터')) return false;
@@ -205,7 +222,7 @@
             });
 
             if (items.length === 0) {
-                if (query !== '') alert(`"${query}" 에 해당하는 승객용 승강기 검색 결과가 없습니다.`);
+                alert(`[${sido}] 지역에 "${query}" (으)로 검색된 승객용 승강기가 없습니다.`);
                 return;
             }
 
@@ -328,9 +345,9 @@
             markers.push(customOverlay);
         });
         
-        if(dataArray.length > 0 && document.getElementById('searchInput').value.trim() !== '') {
+        if(dataArray.length > 0) {
             map.setCenter(new kakao.maps.LatLng(dataArray[0].lat, dataArray[0].lng));
-            map.setLevel(3); 
+            map.setLevel(4); 
         }
     }
 
@@ -372,16 +389,23 @@
         document.getElementById('resWheelchair').innerText = `휠체어·유모차 이용: [${hasWheelchair ? '권장(가능 기기 보유)' : '일반'}]`;
 
         document.getElementById('bottomSheet').classList.add('active');
+        
         map.panTo(new kakao.maps.LatLng(groupData.lat - 0.002, groupData.lng));
     }
 
     function handleKeyPress(e) { if (e.key === 'Enter') { document.getElementById('searchInput').blur(); executeSearch(); } }
     function showRecentSearch() { document.getElementById('recentSearchBox').style.display = 'block'; }
-    function selectTag(val) { document.getElementById('searchInput').value = val; executeSearch(); }
+    
+    // 지역 선택 시 태그 검색 자동 맵핑 기능
+    function selectTag(sido, query) { 
+        document.getElementById('sidoSelector').value = sido;
+        document.getElementById('searchInput').value = query; 
+        executeSearch(); 
+    }
+    
     function clearSearch() { 
         document.getElementById('searchInput').value = ''; 
         resetUI(); 
-        executeSearch(); 
     }
     function clearRecent() { document.getElementById('recentSearchBox').style.display = 'none'; }
     function resetUI() {
