@@ -27,7 +27,8 @@
         .bottom-sheet.active { transform: translateY(0); }
         .info-card { background: white; border-radius: 16px 16px 0 0; padding: 16px; box-shadow: 0 -4px 15px rgba(0,0,0,0.1); border: 1px solid #e0e0e0; }
         .card-header { display: flex; align-items: center; margin-bottom: 8px; }
-        .elevator-icon-box { background-color: #1e4e79; color: white; width: 44px; height: 44px; display: flex; justify-content: center; align-items: center; border-radius: 6px; font-size: 24px; margin-right: 12px; }
+        /* 이모지 대신 사용할 SVG 전용 컨테이너 스타일 재정의 */
+        .elevator-icon-box { color: #1e4e79; width: 36px; height: 36px; display: flex; justify-content: center; align-items: center; margin-right: 8px; }
         .status-title { font-size: 16px; font-weight: bold; color: #333; }
         .status-highlight { color: #1e4e79; font-weight: 800; font-size: 17px; }
         .address-text { font-size: 13px; color: #666; margin-top: 2px; }
@@ -41,9 +42,11 @@
         .check-item input[type="checkbox"] { width: 16px; height: 16px; accent-color: #1e4e79; }
         .parking-card { background: white; padding: 12px 16px; border-top: 1px solid #eee; display: flex; align-items: center; gap: 8px; font-weight: bold; font-size: 16px; color: #2e7d32; box-shadow: 0 -2px 5px rgba(0,0,0,0.05); padding-bottom: 24px; }
         .parking-badge { background-color: #2e7d32; color: white; border-radius: 4px; width: 20px; height: 20px; display: flex; justify-content: center; align-items: center; font-size: 12px; }
-        .custom-marker { background-color: #1e4e79; color: white; padding: 6px 10px; border-radius: 6px; font-size: 12px; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.3); position: relative; white-space: nowrap; cursor: pointer; bottom: 25px; }
-        .custom-marker::after { content: ''; position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%); border-width: 6px 6px 0; border-style: solid; border-color: #1e4e79 transparent; display: block; width: 0; }
-        .custom-marker.stopped { background-color: #d32f2f; }
+        
+        /* 맵 마커(핀)를 작고 예쁘게 튜닝 */
+        .custom-marker { background-color: #1e4e79; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: normal; box-shadow: 0 2px 4px rgba(0,0,0,0.3); position: relative; white-space: nowrap; cursor: pointer; bottom: 18px; display: flex; align-items: center; border: 1px solid rgba(255,255,255,0.2); }
+        .custom-marker::after { content: ''; position: absolute; bottom: -5px; left: 50%; transform: translateX(-50%); border-width: 5px 5px 0; border-style: solid; border-color: #1e4e79 transparent; display: block; width: 0; }
+        .custom-marker.stopped { background-color: #d32f2f; border-color: #ffb3b3;}
         .custom-marker.stopped::after { border-color: #d32f2f transparent; }
     </style>
 </head>
@@ -73,7 +76,13 @@
     <div class="bottom-sheet" id="bottomSheet">
         <div class="info-card">
             <div class="card-header">
-                <div class="elevator-icon-box">🛗</div>
+                <div class="elevator-icon-box">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="currentColor" viewBox="0 0 16 16">
+                        <path d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2zm2-1a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H4z"/>
+                        <path d="M8.5 2.5 11 5H6l2.5-2.5zm0 11L6 11h5l-2.5 2.5z"/>
+                        <path d="M10 12h-2v-4h2v4zm-3 0H5v-4h2v4z"/>
+                    </svg>
+                </div>
                 <div>
                     <div class="status-title">✓ <span class="status-highlight">승강기 있음</span> <span id="resStatus" style="font-size:14px; margin-left:4px;"></span></div>
                     <div class="address-text" id="resAddress"></div>
@@ -83,7 +92,7 @@
             <table class="data-table">
                 <tr><th>승강기번호</th><td id="resElevatorNo" style="font-weight:bold; color:#1e4e79;">-</td><th>운행층수</th><td id="resFloors">-</td></tr>
                 <tr><th>승강기종류</th><td id="resType">-</td><th>적재하중</th><td id="resWeight">-</td></tr>
-                <tr><th>정격속도</th><td id="resSpeed">-</td><th>승강기상태</th><td id="resState" style="font-weight:bold;">-</td></tr>
+                <tr><th>정격속도</th><td id="resSpeed">-</td><th>최대정원</th><td id="resCapacity" style="font-weight:bold;">-</td></tr>
             </table>
             <div class="check-list">
                 <div class="check-item"><input type="checkbox" id="chk1" checked disabled> <label for="chk1">비상용 엘리베이터 피트 배수시설</label></div>
@@ -100,7 +109,7 @@
 <script>
     let map;
     let markers = [];
-    let geocoder; // 카카오 주소->좌표 변환기
+    let geocoder; 
 
     const DEPLOY_CONFIG = {
         CLOUDFLARE_WORKER_URL: 'https://wild-river-017e.sjh01046934.workers.dev/?url=' 
@@ -111,6 +120,9 @@
         BASE_URL: 'https://apis.data.go.kr/B553664/ElevatorInformationService/getElevatorListM'
     };
 
+    // 마커 전용 미니 SVG 아이콘
+    const markerSvgIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16" style="margin-right:4px;"><path d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2zm2-1a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H4z"/><path d="M8.5 2.5 11 5H6l2.5-2.5zm0 11L6 11h5l-2.5 2.5z"/><path d="M10 12h-2v-4h2v4zm-3 0H5v-4h2v4z"/></svg>`;
+
     function initMap() {
         const container = document.getElementById('map');
         const options = {
@@ -118,13 +130,13 @@
             level: 4
         };
         map = new kakao.maps.Map(container, options);
-        geocoder = new kakao.maps.services.Geocoder(); // 지오코더 생성
+        geocoder = new kakao.maps.services.Geocoder(); 
 
         kakao.maps.event.addListener(map, 'click', function() {
             resetUI();
         });
 
-        executeSearch(); // 초기 자동 로드
+        executeSearch(); 
     }
 
     async function executeSearch() {
@@ -136,7 +148,6 @@
         try {
             let targetUrl = '';
 
-            // 카카오 Geocoder 과부하 방지를 위해 전체 검색 시 100건으로 제한, 상세 검색 시 50건
             if (query === '') {
                 targetUrl = API_CONFIG.BASE_URL + '?serviceKey=' + API_CONFIG.SERVICE_KEY + '&pageNo=1&numOfRows=100&sido=' + encodeURIComponent('세종') + '&_type=json';
             } else {
@@ -153,12 +164,19 @@
             let items = result.response?.body?.items?.item || [];
             if (!Array.isArray(items)) items = [items];
 
-            if (items.length === 0 || !items[0]) {
-                if (query !== '') alert("검색된 승강기 데이터가 없습니다.");
+            // ★ 필수: 덤웨이터 및 순수 화물용 걸러내기 (승객화물용은 통과)
+            items = items.filter(apiItem => {
+                const type = apiItem.elvtrDivNm || apiItem.elvtr_div_nm || "";
+                if (type.includes('덤웨이터')) return false;
+                if (type === '화물용' || (type.includes('화물용') && !type.includes('승객'))) return false;
+                return true;
+            });
+
+            if (items.length === 0) {
+                if (query !== '') alert("승객용 승강기 데이터를 찾을 수 없습니다.\n(해당 건물에 화물용/덤웨이터만 존재하거나 승강기가 없습니다.)");
                 return;
             }
 
-            // ★ 핵심 변경: 주소 데이터를 바탕으로 진짜 GPS 좌표 변환 (비동기 처리)
             const mappedData = await Promise.all(items.map(apiItem => {
                 return new Promise((resolve) => {
                     const stts = apiItem.elvtrSttsNm || apiItem.elvtr_stts_nm || apiItem.elvtrStts || "상태불명";
@@ -173,9 +191,10 @@
                         floors: apiItem.shuttleSection || apiItem.shuttle_section || "정보 없음",
                         weight: apiItem.liveLoad || apiItem.live_load || "정보 없음",
                         elevatorNo: apiItem.elevatorNo || apiItem.elevator_no || "번호 미상",
+                        capacity: apiItem.personCnt || apiItem.person_cnt ? (apiItem.personCnt || apiItem.person_cnt) + '명' : "정보 없음",
                         state: stts,
                         isOperating: isOperating,
-                        lat: 36.4792, // 변환 실패 시 기본값 (세종시청)
+                        lat: 36.4792,
                         lng: 127.2892
                     };
 
@@ -184,10 +203,8 @@
                         return;
                     }
 
-                    // 카카오 주소->좌표 변환
                     geocoder.addressSearch(address, function(result, status) {
                         if (status === kakao.maps.services.Status.OK) {
-                            // 한 건물에 승강기가 여러 대일 경우 핀이 완전히 겹치지 않도록 미세한 오프셋 추가
                             const offsetLat = (Math.random() - 0.5) * 0.0002; 
                             const offsetLng = (Math.random() - 0.5) * 0.0002;
                             baseData.lat = parseFloat(result[0].y) + offsetLat;
@@ -200,7 +217,6 @@
             
             renderMarkers(mappedData);
 
-            // 검색어를 넣은 경우에만 결과 하나를 자동으로 펼침
             if(query !== '' && mappedData.length > 0) {
                 openBottomSheet(mappedData[0]);
             }
@@ -218,7 +234,8 @@
         dataArray.forEach(data => {
             const content = document.createElement('div');
             content.className = data.isOperating ? 'custom-marker' : 'custom-marker stopped';
-            content.innerHTML = data.isOperating ? '🛗 ' + data.buildingName : '🛗 ' + data.buildingName + ' (정지)';
+            // 엑스박스 방지 SVG 아이콘 적용 완료
+            content.innerHTML = markerSvgIcon + data.buildingName + (data.isOperating ? '' : ' (정지)');
             
             content.onclick = function() { openBottomSheet(data); };
 
@@ -232,10 +249,9 @@
             markers.push(customOverlay);
         });
         
-        // 검색결과 위치로 부드럽게 지도 이동
         if(dataArray.length > 0 && document.getElementById('searchInput').value.trim() !== '') {
             map.setCenter(new kakao.maps.LatLng(dataArray[0].lat, dataArray[0].lng));
-            map.setLevel(3); // 건물을 잘 볼 수 있도록 레벨 확대
+            map.setLevel(3); 
         }
     }
 
@@ -247,6 +263,7 @@
         document.getElementById('resSpeed').innerText = data.speed;
         document.getElementById('resFloors').innerText = data.floors;
         document.getElementById('resWeight').innerText = data.weight;
+        document.getElementById('resCapacity').innerText = data.capacity; 
         
         const stateCell = document.getElementById('resState');
         stateCell.innerText = data.state;
