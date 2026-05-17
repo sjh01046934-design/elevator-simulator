@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>승강기 검색 서비스 - 설치위치 반영</title>
+    <title>승강기 검색 서비스 - 고도화 버전</title>
     
     <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=59f58919246c9ac3780496fc7e2c0d74&libraries=services&autoload=false"></script>
     
@@ -12,29 +12,41 @@
         body { background-color: #f0f2f5; display: flex; justify-content: center; font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
         .app-container { width: 100%; max-width: 412px; height: 100vh; background-color: #e5e5e5; position: relative; overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.15); }
         #map { width: 100%; height: 100%; z-index: 1; }
-        .search-bar-wrapper { position: absolute; top: 0; left: 0; right: 0; padding: 35px 16px 10px 16px; background: linear-gradient(to bottom, rgba(255,255,255,0.9) 70%, rgba(255,255,255,0)); z-index: 10; }
         
-        .search-bar { background: white; border-radius: 8px; display: flex; align-items: center; padding: 8px 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); border: 1px solid #dcdcdc; }
+        /* 상단 검색바 영역 */
+        .search-bar-wrapper { position: absolute; top: 0; left: 0; right: 0; padding: 35px 16px 10px 16px; background: linear-gradient(to bottom, rgba(255,255,255,0.9) 70%, rgba(255,255,255,0)); z-index: 10; }
+        .search-bar { background: white; border-radius: 8px; display: flex; align-items: center; padding: 8px 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); border: 1px solid #dcdcdc; position: relative; }
         .sido-select { border: none; border-right: 1px solid #ddd; background: transparent; font-size: 14px; font-weight: bold; color: #1e4e79; outline: none; padding-right: 8px; margin-right: 8px; cursor: pointer; }
-        .search-bar input { flex: 1; border: none; outline: none; font-size: 15px; font-weight: bold; color: #222; }
+        .search-bar input { flex: 1; border: none; outline: none; font-size: 15px; font-weight: bold; color: #222; width: 100%; }
         
         .icon-clear { background: #ccc; color: white; border-radius: 50%; width: 18px; height: 18px; display: flex; justify-content: center; align-items: center; font-size: 10px; margin-right: 12px; cursor: pointer; font-weight: bold; }
         .icon-search { color: #555; font-size: 20px; cursor: pointer; font-weight: bold; }
         
         #searchLoadingMsg { display: none; text-align: center; font-size: 12px; font-weight: bold; color: #1e4e79; margin-top: 8px; background: rgba(255,255,255,0.9); padding: 4px; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
 
-        .recent-search-box { display: none; background: white; margin-top: 8px; padding: 12px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); border: 1px solid #e0e0e0; }
-        .recent-title { font-size: 13px; font-weight: bold; margin-bottom: 8px; display: flex; justify-content: space-between; color: #333; }
-        .recent-tags { display: flex; flex-wrap: wrap; gap: 6px; }
-        .tag { background: #edf2f7; padding: 6px 12px; border-radius: 15px; font-size: 12px; color: #4a5568; font-weight: bold; cursor: pointer; }
+        /* 최근검색어 & 자동완성 드롭다운 */
+        .search-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); margin-top: 6px; overflow-y: auto; max-height: 250px; display: none; border: 1px solid #e0e0e0; z-index: 20; }
+        .dropdown-header { padding: 12px 16px 6px; font-size: 12px; font-weight: bold; color: #777; display: flex; justify-content: space-between; align-items: center; }
+        .clear-all-btn { color: #aaa; cursor: pointer; font-weight: normal; }
+        .dropdown-item { padding: 12px 16px; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+        .dropdown-item:last-child { border-bottom: none; }
+        .dropdown-item:hover { background-color: #f8fafc; }
+        .item-text { font-size: 14px; font-weight: 500; color: #333; display: flex; align-items: center; gap: 8px; }
+        .item-tag { font-size: 10px; background: #edf2f7; color: #4a5568; padding: 2px 6px; border-radius: 4px; }
+        .item-delete { color: #ccc; padding: 4px; font-size: 14px; }
         
+        /* 더보기 버튼 */
+        .load-more-btn { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); background: #1e4e79; color: white; border: none; padding: 12px 24px; border-radius: 30px; font-size: 14px; font-weight: bold; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 9; cursor: pointer; display: none; align-items: center; gap: 6px; transition: background 0.2s; }
+        .load-more-btn:active { background: #15395b; }
+        
+        /* 바텀 시트 (상세 정보) */
         .bottom-sheet { position: absolute; bottom: 0; left: 0; right: 0; z-index: 10; display: flex; flex-direction: column; transform: translateY(100%); transition: transform 0.3s ease-out; background: white; border-radius: 16px 16px 0 0; box-shadow: 0 -4px 15px rgba(0,0,0,0.15); border: 1px solid #e0e0e0; max-height: 80vh; }
         .bottom-sheet.active { transform: translateY(0); }
         .info-card { padding: 16px; display: flex; flex-direction: column; height: 100%; overflow: hidden; padding-bottom: 24px; }
         .card-header { display: flex; align-items: center; margin-bottom: 8px; flex-shrink: 0; }
         
-        .elevator-icon-box { width: 46px; height: 46px; display: flex; justify-content: center; align-items: center; margin-right: 12px; background: white; border-radius: 8px; border: 1px solid #e0e0e0; overflow: hidden; flex-shrink: 0;}
-        .elevator-icon-box img { width: 100%; height: 100%; object-fit: contain; }
+        /* 고품질 승강기 아이콘 래퍼 */
+        .elevator-icon-box { width: 46px; height: 46px; display: flex; justify-content: center; align-items: center; margin-right: 12px; background: #f4f6f8; border-radius: 8px; border: 1px solid #e0e0e0; overflow: hidden; flex-shrink: 0;}
         
         .status-title { font-size: 16px; font-weight: bold; color: #333; }
         .address-text { font-size: 13px; color: #666; margin-top: 2px; }
@@ -44,8 +56,7 @@
         .elevator-list-scroll { flex-grow: 1; overflow-y: auto; padding-right: 4px; margin-bottom: 10px; }
         .elevator-list-scroll::-webkit-scrollbar { width: 6px; }
         .elevator-list-scroll::-webkit-scrollbar-thumb { background-color: #ccc; border-radius: 4px; }
-        .elevator-list-scroll::-webkit-scrollbar-track { background-color: #f1f3f5; }
-
+        
         .elv-item-title { font-size: 13px; font-weight: bold; color: #444; margin-top: 10px; margin-bottom: 4px; display: flex; justify-content: space-between;}
         
         .data-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: center; border: 1px solid #d2d2d2; margin-bottom: 12px; background: white; table-layout: fixed; }
@@ -53,6 +64,7 @@
         .data-table th { background-color: #f8fafc; color: #444; font-weight: bold; width: 20%; }
         .data-table td { font-weight: 500; color: #111; width: 30%; }
         
+        /* 커스텀 마커 */
         .custom-marker { background-color: #1e4e79; color: white; padding: 4px 7px; border-radius: 6px; font-size: 11.5px; font-weight: bold; box-shadow: 0 3px 6px rgba(0,0,0,0.3); position: relative; white-space: nowrap; cursor: pointer; bottom: 20px; display: flex; align-items: center; gap: 4px; border: 1px solid rgba(255,255,255,0.4); transition: transform 0.1s; }
         .custom-marker:active { transform: scale(0.95); }
         .custom-marker::after { content: ''; position: absolute; bottom: -5px; left: 50%; transform: translateX(-50%); border-width: 5px 5px 0; border-style: solid; border-color: #1e4e79 transparent; display: block; width: 0; }
@@ -65,8 +77,9 @@
 <div class="app-container">
     <div id="map"></div>
 
+    <!-- 검색바 영역 -->
     <div class="search-bar-wrapper">
-        <div class="search-bar">
+        <div class="search-bar" id="searchBar">
             <select id="sidoSelector" class="sido-select" onchange="document.getElementById('searchInput').focus()">
                 <option value="세종" selected>세종</option>
                 <option value="서울">서울</option>
@@ -86,30 +99,34 @@
                 <option value="경남">경남</option>
                 <option value="제주">제주</option>
             </select>
-            <input type="text" id="searchInput" placeholder="주소 또는 건물명 검색" onfocus="showRecentSearch()" onkeypress="handleKeyPress(event)">
+            <input type="text" id="searchInput" placeholder="주소 또는 건물명 검색" autocomplete="off" onfocus="handleInputFocus()" oninput="handleInput()" onkeypress="handleKeyPress(event)">
             <span class="icon-clear" onclick="clearSearch()">X</span>
-            <span class="icon-search" onclick="executeSearch()">🔍</span>
+            <span class="icon-search" onclick="executeSearch(false)">🔍</span>
+            
+            <!-- 자동완성 및 최근 검색어 드롭다운 -->
+            <div class="search-dropdown" id="searchDropdown"></div>
         </div>
         
-        <div id="searchLoadingMsg">⏳ 전국 서버에서 실시간 검색 중입니다...</div>
-        
-        <div class="recent-search-box" id="recentSearchBox">
-            <div class="recent-title">추천 검색어 <span style="color:#888; font-size:11px; cursor:pointer;" onclick="clearRecent()">닫기</span></div>
-            <div class="recent-tags">
-                <div class="tag" onclick="selectTag('세종', '산울')">세종 산울</div>
-                <div class="tag" onclick="selectTag('세종', '보람동')">세종 보람동</div>
-                <div class="tag" onclick="selectTag('서울', '강남')">서울 강남</div>
-                <div class="tag" onclick="selectTag('경기', '판교')">경기 판교</div>
-                <div class="tag" onclick="selectTag('부산', '해운대')">부산 해운대</div>
-            </div>
-        </div>
+        <div id="searchLoadingMsg">⏳ 데이터를 불러오는 중입니다...</div>
     </div>
 
+    <!-- 데이터 더보기 버튼 -->
+    <button id="loadMoreBtn" class="load-more-btn" onclick="executeSearch(true)">
+        <span>다음 페이지 로드</span> ➕
+    </button>
+
+    <!-- 승강기 상세정보 바텀 시트 -->
     <div class="bottom-sheet" id="bottomSheet">
         <div class="info-card">
             <div class="card-header">
+                <!-- 고화질 SVG 엘리베이터 아이콘 적용 -->
                 <div class="elevator-icon-box">
-                    <img src="image_.png" alt="승강기 아이콘" onerror="this.src='https://cdn-icons-png.flaticon.com/512/3223/3223126.png';">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#1e4e79" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect>
+                        <line x1="12" y1="22" x2="12" y2="2"></line>
+                        <polyline points="8 6 12 2 16 6"></polyline>
+                        <polyline points="8 18 12 22 16 18"></polyline>
+                    </svg>
                 </div>
                 <div>
                     <div class="status-title" id="resBuildingName">건물명</div>
@@ -119,11 +136,10 @@
             
             <div class="section-title">
                 <span>승강기 목록 <span id="resTotalCount" style="color:#1e4e79;">(0대)</span></span>
-                <span style="color:#777; font-size:11px; font-weight:normal; cursor:pointer; background:#eee; padding:2px 8px; border-radius:10px;" onclick="resetUI()">닫기</span>
+                <span style="color:#777; font-size:11px; font-weight:normal; cursor:pointer; background:#eee; padding:2px 8px; border-radius:10px;" onclick="closeBottomSheet()">닫기</span>
             </div>
             
-            <div id="elevatorListContainer" class="elevator-list-scroll">
-                </div>
+            <div id="elevatorListContainer" class="elevator-list-scroll"></div>
         </div>
     </div>
 </div>
@@ -132,6 +148,12 @@
     let map;
     let markers = [];
     let geocoder; 
+    
+    // 글로벌 상태 관리 (더보기 기능용)
+    let currentPage = 1;
+    let lastQuery = '';
+    let lastSido = '';
+    let allElevatorsData = []; // 누적된 고유 승강기 데이터 리스트
 
     const DEPLOY_CONFIG = { CLOUDFLARE_WORKER_URL: 'https://wild-river-017e.sjh01046934.workers.dev/?url=' };
     const API_CONFIG = { SERVICE_KEY: 'bf828022bb4535034959395893c59397fff91ac219c93670610575093972289d', BASE_URL: 'https://apis.data.go.kr/B553664/ElevatorInformationService/getElevatorListM' };
@@ -143,30 +165,186 @@
         map = new kakao.maps.Map(container, options);
         geocoder = new kakao.maps.services.Geocoder(); 
 
-        kakao.maps.event.addListener(map, 'click', function() { resetUI(); });
+        kakao.maps.event.addListener(map, 'click', function() { 
+            closeBottomSheet(); 
+            closeDropdown();
+        });
     }
 
-    async function executeSearch() {
+    // --- 최근 검색어 및 자동완성 로직 ---
+    let debounceTimer;
+
+    function handleInputFocus() {
+        const val = document.getElementById('searchInput').value.trim();
+        if (!val) {
+            renderRecentSearches();
+        } else {
+            handleInput();
+        }
+    }
+
+    function handleInput() {
+        const val = document.getElementById('searchInput').value.trim();
+        const sido = document.getElementById('sidoSelector').value;
+        clearTimeout(debounceTimer);
+
+        if (!val) {
+            renderRecentSearches();
+            return;
+        }
+
+        // 300ms 디바운스 적용하여 API 호출 최소화
+        debounceTimer = setTimeout(async () => {
+            try {
+                // 자동완성용 가벼운 호출 (20건만)
+                const url = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=1&numOfRows=20&sido=${encodeURIComponent(sido)}&buld_nm=${encodeURIComponent(val)}&_type=json`;
+                const proxyUrl = DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(url);
+                const res = await fetch(proxyUrl).then(r => r.ok ? r.json() : {});
+                
+                let items = res.response?.body?.items?.item || [];
+                if (!Array.isArray(items)) items = [items];
+                
+                // 고유한 건물명 추출
+                const suggestions = [...new Set(items.map(i => i.buldNm || i.buld_nm).filter(Boolean))];
+                renderAutocomplete(suggestions, val);
+            } catch (error) {
+                console.error("자동완성 에러:", error);
+                document.getElementById('searchDropdown').style.display = 'none';
+            }
+        }, 300);
+    }
+
+    function renderAutocomplete(suggestions, keyword) {
+        const dropdown = document.getElementById('searchDropdown');
+        dropdown.innerHTML = '';
+        
+        if (suggestions.length === 0) {
+            dropdown.style.display = 'none';
+            return;
+        }
+
+        dropdown.innerHTML = `<div class="dropdown-header">자동완성 추천</div>`;
+        suggestions.forEach(s => {
+            const div = document.createElement('div');
+            div.className = 'dropdown-item';
+            div.innerHTML = `<div class="item-text">🔍 ${s.replace(keyword, `<span style="color:#1e4e79; font-weight:bold;">${keyword}</span>`)}</div>`;
+            div.onclick = () => {
+                document.getElementById('searchInput').value = s;
+                executeSearch(false);
+            };
+            dropdown.appendChild(div);
+        });
+        dropdown.style.display = 'block';
+    }
+
+    function renderRecentSearches() {
+        const dropdown = document.getElementById('searchDropdown');
+        let recents = JSON.parse(localStorage.getItem('elevator_recent_searches') || '[]');
+        dropdown.innerHTML = '';
+
+        if (recents.length === 0) {
+            dropdown.style.display = 'none';
+            return;
+        }
+
+        dropdown.innerHTML = `
+            <div class="dropdown-header">
+                최근 검색어
+                <span class="clear-all-btn" onclick="clearAllRecent()">전체삭제</span>
+            </div>
+        `;
+        
+        recents.forEach((item, index) => {
+            const div = document.createElement('div');
+            div.className = 'dropdown-item';
+            div.innerHTML = `
+                <div class="item-text" onclick="applyRecent('${item.sido}', '${item.query}')">
+                    <span class="item-tag">${item.sido}</span> ${item.query}
+                </div>
+                <div class="item-delete" onclick="deleteRecent(${index}, event)">✕</div>
+            `;
+            dropdown.appendChild(div);
+        });
+        dropdown.style.display = 'block';
+    }
+
+    function saveRecentSearch(sido, query) {
+        let recents = JSON.parse(localStorage.getItem('elevator_recent_searches') || '[]');
+        recents = recents.filter(r => !(r.sido === sido && r.query === query)); // 중복 제거
+        recents.unshift({sido, query}); // 최신 항목을 앞에 추가
+        if(recents.length > 7) recents.pop(); // 최대 7개 유지
+        localStorage.setItem('elevator_recent_searches', JSON.stringify(recents));
+    }
+
+    function applyRecent(sido, query) {
+        document.getElementById('sidoSelector').value = sido;
+        document.getElementById('searchInput').value = query;
+        executeSearch(false);
+    }
+
+    function deleteRecent(index, event) {
+        event.stopPropagation();
+        let recents = JSON.parse(localStorage.getItem('elevator_recent_searches') || '[]');
+        recents.splice(index, 1);
+        localStorage.setItem('elevator_recent_searches', JSON.stringify(recents));
+        renderRecentSearches();
+    }
+
+    function clearAllRecent() {
+        localStorage.removeItem('elevator_recent_searches');
+        renderRecentSearches();
+    }
+
+    function closeDropdown() {
+        document.getElementById('searchDropdown').style.display = 'none';
+    }
+
+    // 외부 클릭 시 드롭다운 닫기
+    document.addEventListener('click', function(event) {
+        const searchBar = document.getElementById('searchBar');
+        if (!searchBar.contains(event.target)) {
+            closeDropdown();
+        }
+    });
+
+
+    // --- 메인 검색 기능 (더보기 포함) ---
+    async function executeSearch(isLoadMore = false) {
         const query = document.getElementById('searchInput').value.trim();
         const sido = document.getElementById('sidoSelector').value; 
         
-        document.getElementById('recentSearchBox').style.display = 'none';
-        resetUI();
+        closeDropdown();
+        closeBottomSheet();
 
-        if(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL.includes('내아이디.workers.dev')) return;
+        if (DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL.includes('내아이디.workers.dev')) return;
 
         if (query === '') {
             alert("조회할 주소나 건물명을 입력해주세요.\n(예: 강남, 판교, 해운대 등)");
             return;
         }
 
+        // 새 검색일 경우 초기화
+        if (!isLoadMore) {
+            currentPage = 1;
+            allElevatorsData = [];
+            lastQuery = query;
+            lastSido = sido;
+            saveRecentSearch(sido, query);
+            document.getElementById('loadMoreBtn').style.display = 'none';
+        } else {
+            // 더보기일 경우 페이지 증가
+            currentPage++;
+            // 기존 쿼리 유지
+            document.getElementById('searchInput').value = lastQuery;
+            document.getElementById('sidoSelector').value = lastSido;
+        }
+
         try {
-            let items = [];
             document.getElementById('searchLoadingMsg').style.display = 'block';
 
             const MAX_ROWS = 500; 
-            const urlBuld = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=1&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(sido) + '&buld_nm=' + encodeURIComponent(query) + '&_type=json';
-            const urlAddr = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=1&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(sido) + '&address1=' + encodeURIComponent(query) + '&_type=json';
+            const urlBuld = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${currentPage}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + '&buld_nm=' + encodeURIComponent(lastQuery) + '&_type=json';
+            const urlAddr = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${currentPage}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + '&address1=' + encodeURIComponent(lastQuery) + '&_type=json';
 
             const proxyBuld = DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlBuld);
             const proxyAddr = DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlAddr);
@@ -183,136 +361,152 @@
 
             let combinedItems = [...itemsBuld, ...itemsAddr];
             
-            const loweredQuery = query.toLowerCase();
+            // 필터링 
+            const loweredQuery = lastQuery.toLowerCase();
             combinedItems = combinedItems.filter(item => {
                 const buldNm = String(item.buldNm || item.buld_nm || "").toLowerCase();
                 const address = String(item.address1 || item.address || "").toLowerCase();
                 return buldNm.includes(loweredQuery) || address.includes(loweredQuery);
             });
 
+            // 누적 데이터 합치기 및 중복 제거
+            const allItems = [...allElevatorsData, ...combinedItems];
             const uniqueMap = new Map();
-            combinedItems.forEach(item => {
+            allItems.forEach(item => {
                 const elvNo = item.elevatorNo || item.elevator_no;
                 if (elvNo && !uniqueMap.has(elvNo)) uniqueMap.set(elvNo, item);
             });
-            items = Array.from(uniqueMap.values());
+            
+            let filteredUniqueItems = Array.from(uniqueMap.values());
             
             document.getElementById('searchLoadingMsg').style.display = 'none';
 
-            items = items.filter(apiItem => {
+            filteredUniqueItems = filteredUniqueItems.filter(apiItem => {
                 const type = String(apiItem.elvtrKindNm || apiItem.elvtrDivNm || "");
                 if (type.includes('덤웨이터')) return false;
                 if (type === '화물용' || (type.includes('화물용') && !type.includes('승객'))) return false;
                 return true;
             });
 
-            if (items.length === 0) {
-                alert(`[${sido}] 지역에 "${query}" (으)로 검색된 승객용 승강기가 없습니다.`);
+            if (filteredUniqueItems.length === 0) {
+                if (isLoadMore) alert("더 이상 불러올 승강기 데이터가 없습니다.");
+                else alert(`[${lastSido}] 지역에 "${lastQuery}" (으)로 검색된 승객용 승강기가 없습니다.`);
+                document.getElementById('loadMoreBtn').style.display = 'none';
                 return;
             }
 
-            const groupedMap = new Map();
+            // 글로벌 리스트 갱신
+            allElevatorsData = filteredUniqueItems;
 
-            items.forEach(apiItem => {
-                const buldNm = apiItem.buldNm || apiItem.buld_nm || "건물명 없음";
-                const address = apiItem.address1 || apiItem.address || "주소 없음";
-                const key = `${buldNm}_${address}`;
+            // 더보기 버튼 노출 여부 (이번 호출에서 한쪽이라도 MAX_ROWS를 가져왔다면 더 있을 가능성 존재)
+            if (itemsBuld.length === MAX_ROWS || itemsAddr.length === MAX_ROWS) {
+                document.getElementById('loadMoreBtn').style.display = 'flex';
+                document.getElementById('loadMoreBtn').innerHTML = `<span>현재 ${currentPage}페이지 (결과 더보기)</span> ➕`;
+            } else {
+                document.getElementById('loadMoreBtn').style.display = 'none';
+                if(isLoadMore) alert("모든 데이터를 불러왔습니다.");
+            }
 
-                if (!groupedMap.has(key)) {
-                    groupedMap.set(key, {
-                        buildingName: buldNm,
-                        address: address,
-                        lat: parseFloat(apiItem.gpsLati || apiItem.gps_lati) || null,
-                        lng: parseFloat(apiItem.gpsLong || apiItem.gps_long) || null,
-                        elevators: []
-                    });
-                }
-
-                const stts = String(apiItem.elvtrSttsNm || apiItem.elvtr_stts_nm || apiItem.elvtrStts || "상태불명").trim();
-                const isOperating = !(
-                    stts.includes('정지') || 
-                    stts.includes('중지') || 
-                    stts.includes('불합격') || 
-                    stts.includes('고장') || 
-                    stts.includes('연기') || 
-                    stts.includes('휴지') || 
-                    stts.includes('폐기')
-                );
-                
-                let rawType = String(apiItem.elvtrKindNm || apiItem.elvtrDivNm || "").trim();
-                let refinedType = "승객용"; 
-                if (rawType.includes("장애") && rawType.includes("화물") && rawType.includes("승객")) refinedType = "장애/승객화물용";
-                else if (rawType.includes("에스컬레이터")) refinedType = "에스컬레이터";
-                else if (rawType.includes("무빙워크")) refinedType = "무빙워크";
-                else if (rawType.includes("수직") && rawType.includes("휠체어")) refinedType = "수직형휠체어리프트";
-                else if (rawType.includes("경사") && rawType.includes("휠체어")) refinedType = "경사형휠체어리프트";
-                else if (rawType.includes("장애인")) refinedType = "장애인용";
-                else if (rawType.includes("소방") || rawType.includes("구조") || rawType.includes("비상")) refinedType = "소방구조용";
-                else if (rawType.includes("화물") && rawType.includes("승객")) refinedType = "승객화물용";
-                else if (rawType.includes("병원") || rawType.includes("침대")) refinedType = "병원용";
-                else if (rawType.includes("승객") || rawType.includes("인용")) refinedType = "승객용";
-
-                let rawWeight = String(apiItem.liveLoad || apiItem.live_load || "");
-                let weightNum = rawWeight.replace(/[^0-9]/g, ""); 
-                let finalWeight = weightNum ? weightNum + " kg" : "-";
-
-                let rawSpeed = String(apiItem.ratedSpeed || apiItem.rated_speed || "");
-                let speedNum = rawSpeed.replace(/[^0-9.]/g, "");
-                let finalSpeed = speedNum ? speedNum + " m/min" : "-";
-
-                let rawCap = String(apiItem.prsonCnt || apiItem.personCnt || apiItem.person_cnt || apiItem.personCount || "");
-                let capNum = rawCap.replace(/[^0-9]/g, "");
-                let finalCapacity = "-";
-
-                if (capNum && parseInt(capNum) > 0) finalCapacity = parseInt(capNum) + "명";
-                else if (weightNum && parseInt(weightNum) > 0) finalCapacity = Math.floor(parseInt(weightNum) / 75) + "명";
-
-                if (refinedType === "에스컬레이터" || refinedType === "무빙워크") finalCapacity = "-";
-                
-                // ★ 설치위치 파싱 (API 원본 데이터 무수정 추출)
-                let rawInstallPlace = String(apiItem.installationPlace || apiItem.installation_place || "-").trim();
-
-                groupedMap.get(key).elevators.push({
-                    elevatorNo: apiItem.elevatorNo || apiItem.elevator_no || "번호 미상",
-                    type: refinedType,
-                    speed: finalSpeed,
-                    floors: apiItem.shuttleSection || apiItem.shuttle_section || "-",
-                    weight: finalWeight,
-                    capacity: finalCapacity,
-                    installPlace: rawInstallPlace, // 객체에 설치위치 추가
-                    state: stts, 
-                    isOperating: isOperating
-                });
-            });
-
-            const groupedDataArray = Array.from(groupedMap.values());
-
-            Promise.all(groupedDataArray.map(group => {
-                return new Promise((resolve) => {
-                    if (group.lat && group.lng) {
-                        resolve(group);
-                        return;
-                    }
-                    geocoder.addressSearch(group.address, function(result, status) {
-                        if (status === kakao.maps.services.Status.OK) {
-                            group.lat = parseFloat(result[0].y);
-                            group.lng = parseFloat(result[0].x);
-                        } else {
-                            group.lat = 36.4792 + (Math.random() - 0.5) * 0.05;
-                            group.lng = 127.2892 + (Math.random() - 0.5) * 0.05;
-                        }
-                        resolve(group);
-                    });
-                });
-            })).then(finalData => {
-                renderMarkers(finalData);
-            });
+            processAndRender(allElevatorsData);
 
         } catch (error) {
             console.error("데이터 연동 실패:", error);
             document.getElementById('searchLoadingMsg').style.display = 'none';
-            if (query !== '') alert("공공데이터 서버 통신 에러가 발생했습니다.");
+            alert("공공데이터 서버 통신 에러가 발생했습니다.");
         }
+    }
+
+    function processAndRender(items) {
+        const groupedMap = new Map();
+
+        items.forEach(apiItem => {
+            const buldNm = apiItem.buldNm || apiItem.buld_nm || "건물명 없음";
+            const address = apiItem.address1 || apiItem.address || "주소 없음";
+            const key = `${buldNm}_${address}`;
+
+            if (!groupedMap.has(key)) {
+                groupedMap.set(key, {
+                    buildingName: buldNm,
+                    address: address,
+                    lat: parseFloat(apiItem.gpsLati || apiItem.gps_lati) || null,
+                    lng: parseFloat(apiItem.gpsLong || apiItem.gps_long) || null,
+                    elevators: []
+                });
+            }
+
+            const stts = String(apiItem.elvtrSttsNm || apiItem.elvtr_stts_nm || apiItem.elvtrStts || "상태불명").trim();
+            const isOperating = !(
+                stts.includes('정지') || stts.includes('중지') || stts.includes('불합격') || 
+                stts.includes('고장') || stts.includes('연기') || stts.includes('휴지') || stts.includes('폐기')
+            );
+            
+            let rawType = String(apiItem.elvtrKindNm || apiItem.elvtrDivNm || "").trim();
+            let refinedType = "승객용"; 
+            if (rawType.includes("장애") && rawType.includes("화물") && rawType.includes("승객")) refinedType = "장애/승객화물용";
+            else if (rawType.includes("에스컬레이터")) refinedType = "에스컬레이터";
+            else if (rawType.includes("무빙워크")) refinedType = "무빙워크";
+            else if (rawType.includes("수직") && rawType.includes("휠체어")) refinedType = "수직형휠체어리프트";
+            else if (rawType.includes("경사") && rawType.includes("휠체어")) refinedType = "경사형휠체어리프트";
+            else if (rawType.includes("장애인")) refinedType = "장애인용";
+            else if (rawType.includes("소방") || rawType.includes("구조") || rawType.includes("비상")) refinedType = "소방구조용";
+            else if (rawType.includes("화물") && rawType.includes("승객")) refinedType = "승객화물용";
+            else if (rawType.includes("병원") || rawType.includes("침대")) refinedType = "병원용";
+            else if (rawType.includes("승객") || rawType.includes("인용")) refinedType = "승객용";
+
+            let rawWeight = String(apiItem.liveLoad || apiItem.live_load || "");
+            let weightNum = rawWeight.replace(/[^0-9]/g, ""); 
+            let finalWeight = weightNum ? weightNum + " kg" : "-";
+
+            let rawSpeed = String(apiItem.ratedSpeed || apiItem.rated_speed || "");
+            let speedNum = rawSpeed.replace(/[^0-9.]/g, "");
+            let finalSpeed = speedNum ? speedNum + " m/min" : "-";
+
+            let rawCap = String(apiItem.prsonCnt || apiItem.personCnt || apiItem.person_cnt || apiItem.personCount || "");
+            let capNum = rawCap.replace(/[^0-9]/g, "");
+            let finalCapacity = "-";
+
+            if (capNum && parseInt(capNum) > 0) finalCapacity = parseInt(capNum) + "명";
+            else if (weightNum && parseInt(weightNum) > 0) finalCapacity = Math.floor(parseInt(weightNum) / 75) + "명";
+
+            if (refinedType === "에스컬레이터" || refinedType === "무빙워크") finalCapacity = "-";
+            
+            let rawInstallPlace = String(apiItem.installationPlace || apiItem.installation_place || "-").trim();
+
+            groupedMap.get(key).elevators.push({
+                elevatorNo: apiItem.elevatorNo || apiItem.elevator_no || "번호 미상",
+                type: refinedType,
+                speed: finalSpeed,
+                floors: apiItem.shuttleSection || apiItem.shuttle_section || "-",
+                weight: finalWeight,
+                capacity: finalCapacity,
+                installPlace: rawInstallPlace,
+                state: stts, 
+                isOperating: isOperating
+            });
+        });
+
+        const groupedDataArray = Array.from(groupedMap.values());
+
+        Promise.all(groupedDataArray.map(group => {
+            return new Promise((resolve) => {
+                if (group.lat && group.lng) {
+                    resolve(group);
+                    return;
+                }
+                geocoder.addressSearch(group.address, function(result, status) {
+                    if (status === kakao.maps.services.Status.OK) {
+                        group.lat = parseFloat(result[0].y);
+                        group.lng = parseFloat(result[0].x);
+                    } else {
+                        group.lat = 36.4792 + (Math.random() - 0.5) * 0.05;
+                        group.lng = 127.2892 + (Math.random() - 0.5) * 0.05;
+                    }
+                    resolve(group);
+                });
+            });
+        })).then(finalData => {
+            renderMarkers(finalData);
+        });
     }
 
     function renderMarkers(dataArray) {
@@ -338,7 +532,8 @@
             markers.push(customOverlay);
         });
         
-        if(dataArray.length > 0) {
+        // 처음 검색(1페이지)일 때만 지도 중심을 이동시킴 (더보기 시에는 화면 고정)
+        if(dataArray.length > 0 && currentPage === 1) {
             map.setCenter(new kakao.maps.LatLng(dataArray[0].lat, dataArray[0].lng));
             map.setLevel(4); 
         }
@@ -360,7 +555,7 @@
                 displayStateText = "정상운행";
             }
 
-            // ★ HTML 테이블 구조에 설치위치 항목 추가 (임의 수정 없이 ${elv.installPlace} 원본 노출)
+            // ★ 설치위치 td 에 style="text-align:center;" 적용
             const tableHtml = `
                 <div class="elv-item-title">
                     <span>#${index + 1} 호기 <span style="font-weight:normal; color:#777;">(${elv.elevatorNo})</span></span>
@@ -371,7 +566,7 @@
                     <tr><th>정격속도</th><td>${elv.speed}</td><th>적재하중</th><td>${elv.weight}</td></tr>
                     <tr>
                         <th>최대정원</th><td style="font-weight:bold; color:#1e4e79; background:#f8fafc;">${elv.capacity}</td>
-                        <th>설치위치</th><td style="font-size:11px; text-align:left; padding-left:6px;">${elv.installPlace}</td>
+                        <th>설치위치</th><td style="font-size:11px; text-align:center;">${elv.installPlace}</td>
                     </tr>
                 </table>
             `;
@@ -382,23 +577,20 @@
         map.panTo(new kakao.maps.LatLng(groupData.lat - 0.002, groupData.lng));
     }
 
-    function handleKeyPress(e) { if (e.key === 'Enter') { document.getElementById('searchInput').blur(); executeSearch(); } }
-    function showRecentSearch() { document.getElementById('recentSearchBox').style.display = 'block'; }
-    
-    function selectTag(sido, query) { 
-        document.getElementById('sidoSelector').value = sido;
-        document.getElementById('searchInput').value = query; 
-        executeSearch(); 
+    function handleKeyPress(e) { 
+        if (e.key === 'Enter') { 
+            document.getElementById('searchInput').blur(); 
+            executeSearch(false); 
+        } 
     }
     
     function clearSearch() { 
         document.getElementById('searchInput').value = ''; 
-        resetUI(); 
+        document.getElementById('searchInput').focus();
     }
-    function clearRecent() { document.getElementById('recentSearchBox').style.display = 'none'; }
-    function resetUI() {
+    
+    function closeBottomSheet() {
         document.getElementById('bottomSheet').classList.remove('active');
-        document.getElementById('recentSearchBox').style.display = 'none';
     }
 
     window.onload = function() {
