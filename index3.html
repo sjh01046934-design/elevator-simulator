@@ -565,9 +565,15 @@
         
         clusterer.addMarkers(newOverlays);
         
+        // ★ 검색 첫 페이지일 때 최상단 결과로 지도 시각적 정중앙 이동
         if(renderList.length > 0 && currentPage === 1) {
-            map.setCenter(new kakao.maps.LatLng(renderList[0].lat, renderList[0].lng));
-            map.setLevel(4); 
+            map.setLevel(4); // 1. 지도 레벨(확대)을 먼저 적용합니다.
+            
+            // 2. 0.1초 뒤에 중심 좌표로 이동시킵니다. (렌더링 충돌 방지)
+            // 화면 상단의 검색바(UI)를 피해 사용자의 시야 정중앙에 마커가 보이도록 위도(lat)를 +0.0005 올려서 조정합니다.
+            setTimeout(() => {
+                map.panTo(new kakao.maps.LatLng(renderList[0].lat + 0.0005, renderList[0].lng));
+            }, 100);
         } 
     }
 
