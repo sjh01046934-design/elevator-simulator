@@ -89,7 +89,7 @@
     </div>
 
     <button id="loadMoreBtn" class="load-more-btn" onclick="executeSearch(true)">
-        <span>현재 1페이지 (결과 더보기)</span> ➕
+        <span>다음 페이지 로드</span> ➕
     </button>
 
     <div class="search-bar-wrapper">
@@ -126,7 +126,7 @@
             <div class="search-dropdown" id="searchDropdown"></div>
         </div>
 
-        <div id="searchLoadingMsg">⏳ 데이터를 불러오는 중입니다...</div>
+        <div id="searchLoadingMsg">⏳ 실시간 데이터 검색 중입니다...</div>
     </div>
 
     <div class="bottom-sheet" id="bottomSheet">
@@ -229,11 +229,9 @@
                 map.setCenter(new kakao.maps.LatLng(lat, lon));
                 map.setLevel(4); 
                 loading.style.display = 'none';
-                loading.innerText = "⏳ 데이터를 불러오는 중입니다...";
             }, function() {
                 alert("GPS 위치 정보를 가져올 수 없습니다. 권한을 확인해주세요.");
                 loading.style.display = 'none';
-                loading.innerText = "⏳ 데이터를 불러오는 중입니다...";
             }, { timeout: 10000 });
         } else {
             alert("현재 사용하시는 브라우저에서는 위치 정보를 지원하지 않습니다.");
@@ -300,7 +298,6 @@
                 let items = res.response?.body?.items?.item || [];
                 if (!Array.isArray(items)) items = [items];
                 
-                // 프론트엔드: 띄어쓰기 무시하고 완벽하게 필터링
                 const searchTarget = val.replace(/\s+/g, '').toLowerCase();
                 const isMatch = (item) => {
                     const b = String(item.buldNm || item.buld_nm || "").replace(/\s+/g, '').toLowerCase();
@@ -362,7 +359,8 @@
     function closeDropdown() { document.getElementById('searchDropdown').style.display = 'none'; }
     document.addEventListener('click', function(event) { if (!document.getElementById('searchBar').contains(event.target)) closeDropdown(); });
 
-    // ★ 메인 검색 실행 (스마트 하이브리드 로직)
+
+    // ★ 메인 검색 실행 (다중 쿼리 탐색 시스템)
     async function executeSearch(isLoadMore = false) {
         const query = document.getElementById('searchInput').value.trim();
         const sido = document.getElementById('sidoSelector').value; 
@@ -389,53 +387,67 @@
         }
 
         try {
+            document.getElementById('searchLoadingMsg').innerText = "⏳ 실시간 데이터 검색 중입니다...";
             document.getElementById('searchLoadingMsg').style.display = 'block';
+            
             const MAX_ROWS = 500; 
             let fetches = [];
 
-            // 1. 기본 검색: 건물명
-            const urlBuld = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${currentPage}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + '&buld_nm=' + encodeURIComponent(lastQuery) + '&_type=json';
-            fetches.push(fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlBuld)).then(res => res.ok ? res.json() : {}));
-            
-            // 2. 기본 검색: 주소1
-            const urlAddr1 = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${currentPage}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + '&address1=' + encodeURIComponent(lastQuery) + '&_type=json';
-            fetches.push(fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlAddr1)).then(res => res.ok ? res.json() : {}));
+            // 1. 띄어쓰기가 있는 경우 (예: 한누리대로 169)
+            const spacedQuery = lastQuery.replace(/([가-힣a-zA-Z])(\d+)/g, '$1 $2').replace(/\s+/g, ' ').trim();
+            // 2. 띄어쓰기가 없는 경우 (예: 한누리대로169)
+            const noSpaceQuery = lastQuery.replace(/\s+/g, '');
 
-            // 3. 스마트 검색: "한누리대로169" -> 한누리대로(address1) & 169(address2) 쪼개서 동시 호출!
-            let cleanQuery = lastQuery.replace(/([가-힣a-zA-Z])(\d+)/g, '$1 $2').trim(); // 문자와 숫자 사이에 강제로 띄어쓰기 삽입
-            let words = cleanQuery.split(/\s+/);
-            if (words.length >= 2) {
-                let addr1 = words.slice(0, -1).join(" "); // 마지막 단어를 제외한 전부 (예: 한누리대로)
-                let addr2 = words[words.length - 1];      // 마지막 단어 (예: 169)
-                const urlAddr2 = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${currentPage}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + '&address1=' + encodeURIComponent(addr1) + '&address2=' + encodeURIComponent(addr2) + '&_type=json';
-                fetches.push(fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlAddr2)).then(res => res.ok ? res.json() : {}));
-            }
+            const queriesToTry = [...new Set([spacedQuery, noSpaceQuery])];
 
-            const results = await Promise.all(fetches);
+            queriesToTry.forEach(q => {
+                if (!q) return;
+                // 건물명 검색
+                const urlBuld = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${currentPage}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + '&buld_nm=' + encodeURIComponent(q) + '&_type=json';
+                fetches.push({ type: 'buld', q: q, req: fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlBuld)).then(res => res.ok ? res.json() : {}) });
+                
+                // 주소 검색
+                const urlAddr = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${currentPage}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + '&address1=' + encodeURIComponent(q) + '&_type=json';
+                fetches.push({ type: 'addr', q: q, req: fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlAddr)).then(res => res.ok ? res.json() : {}) });
+            });
 
-            // 띄어쓰기를 전부 제거하고 비교하여 철통 방어 필터링
-            const searchTarget = lastQuery.replace(/\s+/g, '').toLowerCase();
-            const isMatch = (item) => {
-                const b = String(item.buldNm || item.buld_nm || "").replace(/\s+/g, '').toLowerCase();
-                const a = (String(item.address1 || item.address || "") + String(item.address2 || "")).replace(/\s+/g, '').toLowerCase();
-                return b.includes(searchTarget) || a.includes(searchTarget);
-            };
+            const results = await Promise.all(fetches.map(f => f.req));
 
             let combinedItems = [];
             let hasMoreData = false;
 
-            results.forEach(res => {
+            results.forEach((res, index) => {
                 let items = res.response?.body?.items?.item || [];
                 if (!Array.isArray(items)) items = [items];
-                
-                let validItems = items.filter(isMatch);
-                combinedItems.push(...validItems);
-                
-                // ★ 더보기 버그 철통 방어: 가져온 500개 중 실제로 90% 이상이 검색어와 일치할 때만 "더보기" 인정
-                if (items.length >= MAX_ROWS && validItems.length >= (MAX_ROWS * 0.9)) {
+
+                const fetchInfo = fetches[index];
+                const searchKeyword = fetchInfo.q.replace(/\s+/g, '').toLowerCase();
+
+                // ★ 해당 응답값이 실제 검색어와 관련이 있는지 '진위 여부'를 판별합니다.
+                let isRelevant = false;
+                if (fetchInfo.type === 'buld') {
+                    isRelevant = items.some(item => String(item.buldNm || item.buld_nm).replace(/\s+/g, '').toLowerCase().includes(searchKeyword));
+                } else {
+                    isRelevant = items.some(item => (String(item.address1 || item.address) + String(item.address2 || "")).replace(/\s+/g, '').toLowerCase().includes(searchKeyword));
+                }
+
+                // 관련 있는 진짜 데이터가 500개를 꽉 채웠을 때만 다음 페이지가 있다고 판단합니다! (버그 완벽 차단)
+                if (items.length >= MAX_ROWS && isRelevant) {
                     hasMoreData = true;
                 }
+
+                combinedItems.push(...items);
             });
+
+            // 철저한 브라우저 단 필터링
+            const targetNoSpace = lastQuery.replace(/\s+/g, '').toLowerCase();
+            const isMatch = (item) => {
+                const b = String(item.buldNm || item.buld_nm || "").replace(/\s+/g, '').toLowerCase();
+                const a = (String(item.address1 || item.address || "") + String(item.address2 || "")).replace(/\s+/g, '').toLowerCase();
+                return b.includes(targetNoSpace) || a.includes(targetNoSpace);
+            };
+
+            let validItems = combinedItems.filter(isMatch);
 
             // 중복 제거
             const uniqueMap = new Map();
@@ -443,7 +455,7 @@
                 const elvNo = item.elevatorNo || item.elevator_no;
                 if (elvNo) uniqueMap.set(elvNo, item);
             });
-            combinedItems.forEach(item => {
+            validItems.forEach(item => {
                 const elvNo = item.elevatorNo || item.elevator_no;
                 if (elvNo && !uniqueMap.has(elvNo)) uniqueMap.set(elvNo, item);
             });
@@ -458,9 +470,15 @@
 
             if (filteredUniqueItems.length === 0) {
                 document.getElementById('searchLoadingMsg').style.display = 'none';
-                if (isLoadMore) alert("더 이상 불러올 승강기 데이터가 없습니다.");
-                else alert(`[${lastSido}] 지역에 "${lastQuery}" (으)로 검색된 승객용 승강기가 없습니다.`);
-                document.getElementById('loadMoreBtn').style.display = 'none';
+                if (hasMoreData) {
+                    alert(`현재 페이지에는 승객용 승강기가 없습니다.\n'다음 페이지 로드' 버튼을 눌러 탐색을 계속해주세요.`);
+                    document.getElementById('loadMoreBtn').style.display = 'flex';
+                    document.getElementById('loadMoreBtn').innerHTML = `<span>다음 페이지 로드 (${currentPage + 1}p)</span> ➕`;
+                } else {
+                    if (isLoadMore) alert("더 이상 불러올 승강기 데이터가 없습니다.");
+                    else alert(`[${lastSido}] 지역에 "${lastQuery}" (으)로 검색된 결과가 없습니다.`);
+                    document.getElementById('loadMoreBtn').style.display = 'none';
+                }
                 return;
             }
 
@@ -468,10 +486,10 @@
 
             if (hasMoreData) {
                 document.getElementById('loadMoreBtn').style.display = 'flex';
-                document.getElementById('loadMoreBtn').innerHTML = `<span>현재 ${currentPage}페이지 (결과 더보기)</span> ➕`;
+                document.getElementById('loadMoreBtn').innerHTML = `<span>다음 페이지 로드 (${currentPage + 1}p)</span> ➕`;
             } else {
                 document.getElementById('loadMoreBtn').style.display = 'none';
-                if(isLoadMore) alert("모든 검색 결과를 불러왔습니다.");
+                if (isLoadMore) alert("모든 검색 결과를 불러왔습니다.");
             }
 
             buildGlobalGroups();
@@ -575,21 +593,20 @@
     function renderData() {
         let renderList = [...globalGroups];
 
-        // 띄어쓰기를 완전히 무시하고 가장 많이 일치하는 순서대로 정렬
-        const searchTarget = lastQuery.replace(/\s+/g, '').toLowerCase();
+        const queryLower = lastQuery.replace(/\s+/g, '').toLowerCase();
         
         const getScore = (g) => {
             const name = g.buildingName.replace(/\s+/g, '').toLowerCase();
             const addr = g.address.replace(/\s+/g, '').toLowerCase();
             let score = 0;
             
-            if (name === searchTarget) score += 1000;
-            else if (name.startsWith(searchTarget)) score += 500;
-            else if (name.includes(searchTarget)) score += 100;
+            if (name === queryLower) score += 1000;
+            else if (name.startsWith(queryLower)) score += 500;
+            else if (name.includes(queryLower)) score += 100;
             
-            if (addr === searchTarget) score += 1000;
-            else if (addr.startsWith(searchTarget)) score += 500;
-            else if (addr.includes(searchTarget)) score += 100;
+            if (addr === queryLower) score += 1000;
+            else if (addr.startsWith(queryLower)) score += 500;
+            else if (addr.includes(queryLower)) score += 100;
             
             score -= name.length;
             return score;
