@@ -116,7 +116,6 @@
                 <option value="제주">제주</option>
             </select>
             
-            <!-- ★ 3가지 검색 모드 분리 -->
             <select id="searchType" class="sido-select" style="margin-right:8px; color:#555;" onchange="document.getElementById('searchInput').focus()">
                 <option value="place" selected>상호/장소</option>
                 <option value="building">건물/아파트명</option>
@@ -140,7 +139,6 @@
     </div>
 
     <div class="bottom-sheet" id="bottomSheet">
-        <!-- 바텀시트 내용 유지 -->
         <div class="info-card">
             <div class="card-header">
                 <div class="elevator-icon-box">
@@ -236,7 +234,7 @@
 
                     if (searchTarget) {
                         document.getElementById('searchInput').value = searchTarget;
-                        document.getElementById('searchType').value = 'address'; // 맵 클릭시 주소로 설정
+                        document.getElementById('searchType').value = 'address'; 
                         const sidoMap = {"서울특별시":"서울","부산광역시":"부산","대구광역시":"대구","인천광역시":"인천","광주광역시":"광주","대전광역시":"대전","울산광역시":"울산","세종특별자치시":"세종","경기도":"경기","강원특별자치도":"강원","충청북도":"충북","충청남도":"충남","전라북도":"전북","전북특별자치도":"전북","전라남도":"전남","경상북도":"경북","경상남도":"경남","제주특별자치도":"제주"};
                         let rawSido = result[0].address.region_1depth_name;
                         document.getElementById('sidoSelector').value = sidoMap[rawSido] || rawSido.substring(0,2);
@@ -311,7 +309,7 @@
         document.getElementById('searchInput').blur(); 
         
         if(type === 'place') searchKakaoPlaces();
-        else executeBroadSearch(); // 건물명 또는 주소
+        else executeBroadSearch(); 
     }
 
     function fastDelete(event, index) {
@@ -390,8 +388,9 @@
     function closeDropdown() { document.getElementById('searchDropdown').style.display = 'none'; }
     document.addEventListener('click', function(event) { if (!document.getElementById('searchBar').contains(event.target)) closeDropdown(); });
 
+
     // =========================================================
-    // ★ [모드 1] 상호/장소 (카카오 2단계 검색)
+    // ★ [모드 1] 상호/장소 (카카오 리스트업 -> 해당 건물 전체 탐색)
     // =========================================================
     function searchKakaoPlaces() {
         const query = document.getElementById('searchInput').value.trim();
@@ -442,7 +441,7 @@
         if (event) { event.preventDefault(); event.stopPropagation(); }
         
         closeDropdown();
-        cancelSearch(); // 이전 통신 끊기
+        cancelSearch(); 
         currentAbortController = new AbortController();
         const signal = currentAbortController.signal;
 
@@ -455,39 +454,70 @@
             let address1 = "";
             let address2 = "";
 
-            // 주소 파싱 공백 기준 분리
             let words = address.trim().split(/\s+/);
             if (words.length >= 2) {
-                address2 = words.pop(); // 예: "411" 또는 "10-5"
-                address1 = words.pop(); // 예: "한누리대로" 또는 "산울2로"
+                address2 = words.pop(); 
+                address1 = words.pop(); 
             } else {
                 address1 = address;
             }
 
-            // 공공데이터 서버에는 도로명(address1)만 넣어서 넉넉하게 요청 (번지수는 아래에서 정밀 필터링)
-            const url = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&numOfRows=500&sido=${encodeURIComponent(sido)}&address1=${encodeURIComponent(address1)}&_type=json&pageNo=1`;
+            // 도로명(address1)으로 1페이지 호출해서 전체 개수 파악
+            const baseUrl = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&numOfRows=500&sido=${encodeURIComponent(sido)}&address1=${encodeURIComponent(address1)}&_type=json`;
 
-            let res = await fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(url), { signal });
-            if (!res.ok) throw new Error("서버 응답 오류");
+            let resFirst = await fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(baseUrl + `&pageNo=1`), { signal });
+            if (!resFirst.ok) throw new Error("서버 응답 오류");
             
-            let data = await res.json();
-            let items = data.response?.body?.items?.item || [];
+            let dataFirst = await resFirst.json();
+            let combinedItems = [];
+            let totalCount = dataFirst.response?.body?.totalCount || 0;
+            
+            let items = dataFirst.response?.body?.items?.item || [];
             if (!Array.isArray(items)) items = [items];
+            combinedItems.push(...items);
+
+            let maxPages = Math.ceil(totalCount / 500);
+            maxPages = Math.min(maxPages, 30); // 1만 5천 건 한도
+
+            // ★ 누락 방지: 2페이지 이상일 경우 전부 가져오기 (3개씩 병렬 배치 호출로 속도 확보)
+            if (maxPages > 1) {
+                showLoadingMsg(`⏳ [${placeName}] 상세 데이터 스캔 중... (최대 ${maxPages}p)`);
+                let fetchPromises = [];
+                for (let p = 2; p <= maxPages; p++) { fetchPromises.push(p); }
+
+                for (let i = 0; i < fetchPromises.length; i += 3) {
+                    let batch = fetchPromises.slice(i, i + 3);
+                    let batchRequests = batch.map(p => 
+                        fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(baseUrl + `&pageNo=${p}`), { signal })
+                        .then(r => r.ok ? r.json() : null)
+                        .catch(e => { if(e.name !== 'AbortError') console.error(e); return null; })
+                    );
+                    
+                    let results = await Promise.all(batchRequests);
+                    results.forEach(resData => {
+                        if (resData && resData.response?.body?.items?.item) {
+                            let itms = resData.response?.body?.items?.item;
+                            if (!Array.isArray(itms)) itms = [itms];
+                            combinedItems.push(...itms);
+                        }
+                    });
+                    await new Promise(r => setTimeout(r, 200)); // 429 방어 휴식
+                }
+            }
             
-            // ★ [버그 수정 핵심] 주소 매칭 조건 유연화
-            // 카카오에서 준 번지수(예: 411)가 승강기 데이터 주소에 "포함"되어 있는지 검사 (411-0, 411동 모두 매칭 성공)
+            // ★ 정밀 필터링: 카카오 번지수(411)가 공공DB 번지수(411-0)에 포함되는지 검사
             const targetMainNo = address2.replace(/\s+/g, '').toLowerCase(); 
-            
-            let validItems = items.filter(item => {
+            let validItems = combinedItems.filter(item => {
                 const fullAddr = (String(item.address1 || item.address || "") + " " + String(item.address2 || "")).replace(/\s+/g, '').toLowerCase();
-                return fullAddr.includes(targetMainNo);
+                if(targetMainNo) return fullAddr.includes(targetMainNo);
+                return true;
             });
 
             const uniqueMap = new Map();
             validItems.forEach(item => {
                 const elvNo = item.elevatorNo || item.elevator_no;
                 if (elvNo && !uniqueMap.has(elvNo)) {
-                    item.customBuldNm = placeName; // 카카오 상호명으로 마커 이름 덮어쓰기
+                    item.customBuldNm = placeName; 
                     uniqueMap.set(elvNo, item);
                 }
             });
@@ -501,7 +531,7 @@
             currentAbortController = null;
 
             if (allElevatorsData.length === 0) {
-                alert(`해당 건물(${placeName})의 주소(${address}) 기반으로 조회된 승객용 승강기가 없습니다.\n데이터 누락이 의심된다면 [건물/아파트명] 모드로 검색해 보세요.`);
+                alert(`해당 장소(${placeName})에 등록된 승객용 승강기가 없거나, 데이터가 불일치합니다.\n데이터 누락이 의심되면 [도로명/지번] 모드로 '${address1}'을 직접 검색해 보세요.`);
                 return;
             }
 
@@ -521,12 +551,12 @@
 
 
     // =========================================================
-    // ★ [모드 2, 3] 건물명 / 주소 (공공데이터 직접 검색 모드)
+    // ★ [모드 2, 3] 건물명 / 주소 (공공데이터 전체 탐색 + 3배 병렬 통신)
     // =========================================================
     async function executeBroadSearch() {
         const query = document.getElementById('searchInput').value.trim();
         const sido = document.getElementById('sidoSelector').value; 
-        const searchType = document.getElementById('searchType').value; // 'building' or 'address'
+        const searchType = document.getElementById('searchType').value; 
         
         closeDropdown();
         closeBottomSheet();
@@ -583,30 +613,34 @@
             combinedItems.push(...items);
 
             let maxPages = Math.ceil(totalCount / 500);
-            maxPages = Math.min(maxPages, 30); // 1만 5천 건 한도
+            maxPages = Math.min(maxPages, 30); 
 
+            // ★ 속도 최적화: 3장씩 병렬 호출
             if (maxPages > 1) {
-                for (let p = 2; p <= maxPages; p++) {
-                    showLoadingMsg(`⏳ 전체 데이터(${totalCount}건) 확인 중... [${p}/${maxPages}]`);
-                    try {
-                        let res = await fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(baseApiUrl + `&pageNo=${p}`), { signal });
-                        if (!res.ok) {
-                            if (res.status === 429) { break; } // 서버 제한 시 조기 종료
-                            continue;
+                showLoadingMsg(`⏳ 전체 데이터(${totalCount}건) 확인 중... (최대 ${maxPages}p)`);
+                let fetchPromises = [];
+                for (let p = 2; p <= maxPages; p++) { fetchPromises.push(p); }
+
+                for (let i = 0; i < fetchPromises.length; i += 3) {
+                    let batch = fetchPromises.slice(i, i + 3);
+                    let batchRequests = batch.map(p => 
+                        fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(baseApiUrl + `&pageNo=${p}`), { signal })
+                        .then(r => { if(r.status === 429) throw new Error("429"); return r.ok ? r.json() : null; })
+                        .catch(e => { if(e.name !== 'AbortError' && e.message !== "429") console.error(e); return null; })
+                    );
+                    
+                    let results = await Promise.all(batchRequests);
+                    results.forEach(resData => {
+                        if (resData && resData.response?.body?.items?.item) {
+                            let itms = resData.response?.body?.items?.item;
+                            if (!Array.isArray(itms)) itms = [itms];
+                            combinedItems.push(...itms);
                         }
-                        let data = await res.json();
-                        let itms = data.response?.body?.items?.item || [];
-                        if (!Array.isArray(itms)) itms = [itms];
-                        combinedItems.push(...itms);
-                    } catch (e) {
-                        if (e.name === 'AbortError') throw e; 
-                        console.error("Fetch error on page", p, e);
-                    }
+                    });
                     await new Promise(r => setTimeout(r, 200)); 
                 }
             }
 
-            // ★ 필수 필터링 (불필요한 데이터 걸러내기)
             const queryNoSpace = query.replace(/\s+/g, '').toLowerCase(); 
             let validItems = combinedItems.filter(item => {
                 if (searchType === 'building') {
@@ -653,7 +687,7 @@
 
 
     // =========================================================
-    // ★ 공통 UI 랜더링 로직
+    // ★ 공통 UI 랜더링 (마커 및 바텀시트)
     // =========================================================
     function buildGlobalGroups() {
         const groupedMap = new Map();
