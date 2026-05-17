@@ -89,7 +89,7 @@
     </div>
 
     <button id="loadMoreBtn" class="load-more-btn" onclick="executeSearch(true)">
-        <span>결과 더보기</span> ➕
+        <span>결과 더보기 (이어서 1,500건 탐색)</span> ➕
     </button>
 
     <div class="search-bar-wrapper">
@@ -393,7 +393,6 @@
     function closeDropdown() { document.getElementById('searchDropdown').style.display = 'none'; }
     document.addEventListener('click', function(event) { if (!document.getElementById('searchBar').contains(event.target)) closeDropdown(); });
 
-    // ★ 메인 검색 실행 (자동 연속 탐색 루프 적용)
     async function executeSearch(isLoadMore = false) {
         const query = document.getElementById('searchInput').value.trim();
         const sido = document.getElementById('sidoSelector').value; 
@@ -423,10 +422,8 @@
             document.getElementById('searchLoadingMsg').style.display = 'block';
             
             const MAX_ROWS = 500; 
-            // 현재 페이지 기준으로 앞으로 3회(총 12페이지)까지 팝업 없이 자동 탐색
             const MAX_AUTO_BATCHES = currentPage + 3; 
 
-            // 카카오 장소 검색으로 얻어낼 주소를 저장할 변수
             let placeAddressForFilterRoad = ""; 
             let placeAddressForFilterJibun = "";
 
@@ -464,27 +461,38 @@
             let filteredUniqueItems = [];
             let hasMoreData = false;
 
-            // ★ 팝업 없이 결과를 찾을 때까지 자동으로 계속 탐색하는 핵심 루프
             while (true) {
                 const startPage = (currentPage - 1) * 3 + 1; 
-                document.getElementById('searchLoadingMsg').innerText = `⏳ 광역 데이터를 딥-서치 중입니다 (${startPage}~${startPage+2}페이지)...`;
+                document.getElementById('searchLoadingMsg').innerText = `⏳ 안전하게 데이터를 수집 중입니다 (${startPage}~${startPage+2}페이지)...`;
                 
                 const pagesToFetch = [startPage, startPage + 1, startPage + 2];
-                let fetches = [];
+                let fetchTasks = [];
                 
                 pagesToFetch.forEach(p => {
                     const urlBuld = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${p}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + `&buld_nm=` + encodeURIComponent(lastQuery) + `&_type=json`;
-                    fetches.push({ type: 'buld', page: p, req: fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlBuld)).then(res => res.ok ? res.json() : {}) });
+                    fetchTasks.push({ type: 'buld', page: p, url: urlBuld });
                     
                     const urlAddr = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${p}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + `&address1=` + encodeURIComponent(firstWord) + `&_type=json`;
-                    fetches.push({ type: 'addr', page: p, req: fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlAddr)).then(res => res.ok ? res.json() : {}) });
+                    fetchTasks.push({ type: 'addr', page: p, url: urlAddr });
                 });
 
-                const results = await Promise.all(fetches.map(f => f.req));
+                let results = [];
+                
+                for (let task of fetchTasks) {
+                    try {
+                        let res = await fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(task.url));
+                        let json = res.ok ? await res.json() : {};
+                        results.push({ response: json, type: task.type, page: task.page });
+                    } catch(e) {
+                        console.error("Fetch error on page", task.page);
+                        results.push({ response: {}, type: task.type, page: task.page });
+                    }
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                }
 
                 const searchTarget = lastQuery.replace(/\s+/g, '').toLowerCase();
                 const firstWordTarget = firstWord.replace(/\s+/g, '').toLowerCase();
-                const keywordsLower = keywords.map(kw => kw.toLowerCase());
+                const keywordsLower = words.map(kw => kw.toLowerCase());
 
                 const isMatch = (item) => {
                     const b = String(item.buldNm || item.buld_nm || "").toLowerCase();
@@ -509,16 +517,14 @@
                 let combinedItems = [];
                 hasMoreData = false;
 
-                results.forEach((res, index) => {
-                    let items = res.response?.body?.items?.item || [];
+                results.forEach((resData) => {
+                    let items = resData.response?.body?.items?.item || [];
                     if (!Array.isArray(items)) items = [items];
                     
                     let validItems = items.filter(isMatch);
                     combinedItems.push(...validItems);
                     
-                    // 더보기 버그 방지: 가져온 500개 중 실제로 검색어(첫단어)와 관련된 것이 절반 이상일 때만 추가 데이터가 있다고 판단
-                    const fetchInfo = fetches[index];
-                    if (fetchInfo.page === pagesToFetch[pagesToFetch.length - 1]) {
+                    if (resData.page === pagesToFetch[pagesToFetch.length - 1]) {
                         let firstWordValidItems = items.filter(isFirstWordMatch);
                         if (items.length >= MAX_ROWS && firstWordValidItems.length > (MAX_ROWS * 0.5)) {
                             hasMoreData = true;
@@ -526,7 +532,6 @@
                     }
                 });
 
-                // 중복 제거 및 누적 병합
                 const uniqueMap = new Map();
                 allElevatorsData.forEach(item => {
                     const elvNo = item.elevatorNo || item.elevator_no;
@@ -546,21 +551,14 @@
 
                 allElevatorsData = filteredUniqueItems;
 
-                // ★ 루프 탈출 조건: 
-                // 1. 일치하는 결과를 드디어 찾았거나!
-                // 2. 서버에 더 이상 가져올 데이터가 없거나!
-                // 3. 내가 설정한 한계치(MAX_AUTO_BATCHES, 최대 12페이지)까지 다 뒤졌을 때!
                 if (filteredUniqueItems.length > 0 || !hasMoreData || currentPage >= MAX_AUTO_BATCHES) {
                     break;
                 }
-
-                // 결과를 못 찾았는데 서버에 데이터가 더 남아있다면 페이지 번호를 올리고 계속 탐색 (자동)
                 currentPage++;
             }
 
             document.getElementById('searchLoadingMsg').style.display = 'none';
 
-            // ループを抜けた後の最終処理
             if (filteredUniqueItems.length === 0) {
                 if (hasMoreData) {
                     alert(`현재 최대 12페이지 분량(6,000건)까지 자동 탐색했으나 결과를 찾지 못했습니다.\n데이터가 너무 방대합니다. '결과 더보기'를 누르시면 이어서 탐색합니다.`);
@@ -586,7 +584,7 @@
 
         } catch (error) {
             document.getElementById('searchLoadingMsg').style.display = 'none';
-            alert("공공데이터 서버 통신 에러가 발생했습니다.");
+            alert("서버 통신 에러가 발생했습니다. 잠시 후 다시 시도해주세요.\n(공공데이터 일일 트래픽 초과 또는 서버 점검일 수 있습니다.)");
         }
     }
 
