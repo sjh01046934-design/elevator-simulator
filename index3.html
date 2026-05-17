@@ -451,18 +451,28 @@
         
         try {
             const sido = document.getElementById('sidoSelector').value; 
-            let address1 = "";
-            let address2 = "";
+            let targetAddress1 = "";
+            let targetAddress2 = "";
 
+            // ★ 카카오 주소에서 도로명과 번지수를 안전하게 분리하는 로직
             let words = address.trim().split(/\s+/);
-            if (words.length >= 2) {
-                address2 = words.pop(); 
-                address1 = words.pop(); 
-            } else {
-                address1 = address;
+            for (let i = words.length - 1; i >= 0; i--) {
+                if (/\d/.test(words[i])) { // 숫자가 포함된 토큰을 번지수(address2)로
+                    targetAddress2 = words[i];
+                    targetAddress1 = (i > 0) ? words[i - 1] : words[i]; // 그 앞 단어를 도로명(address1)으로
+                    break;
+                }
+            }
+            if (!targetAddress2) {
+                if (words.length >= 2) {
+                    targetAddress2 = words.pop();
+                    targetAddress1 = words.pop();
+                } else {
+                    targetAddress1 = address;
+                }
             }
 
-            const baseUrl = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&numOfRows=500&sido=${encodeURIComponent(sido)}&address1=${encodeURIComponent(address1)}&_type=json`;
+            const baseUrl = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&numOfRows=500&sido=${encodeURIComponent(sido)}&address1=${encodeURIComponent(targetAddress1)}&_type=json`;
 
             let resFirst = await fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(baseUrl + `&pageNo=1`), { signal });
             if (!resFirst.ok) throw new Error("서버 응답 오류");
@@ -503,24 +513,32 @@
                 }
             }
             
-            // 본번 정밀 매칭
-            const targetMainNo = address2.split('-')[0].replace(/[^0-9]/g, ''); 
+            // ★ 본번(Main Number) 정밀 매칭 (가짜 스타벅스 방지 핵심)
+            const targetMainNo = targetAddress2.split('-')[0].replace(/[^0-9]/g, ''); 
             
             let validItems = combinedItems.filter(item => {
-                let addr2Str = String(item.address2 || "").trim();
-                if (!addr2Str) {
-                    let parts = String(item.address1 || "").trim().split(/\s+/);
-                    addr2Str = parts[parts.length - 1];
-                }
-                let apiMainNo = addr2Str.split('-')[0].replace(/[^0-9]/g, '');
-                return apiMainNo === targetMainNo;
+                let fullStr = (String(item.address1 || "") + " " + String(item.address2 || "")).trim();
+                
+                if (!targetMainNo) return fullStr.includes(targetAddress1);
+
+                // 1순위: "도움8로 81" 처럼 붙어있는 패턴
+                let roadEscaped = targetAddress1.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'); 
+                let regex = new RegExp(roadEscaped + "\\s*([0-9]+)");
+                let match = fullStr.match(regex);
+                if (match && match[1] === targetMainNo) return true;
+
+                // 2순위: 단어 경계로 번지수 독립 매칭 (181, 281 차단)
+                let tokenRegex = new RegExp("\\b" + targetMainNo + "\\b");
+                if (fullStr.includes(targetAddress1) && tokenRegex.test(fullStr)) return true;
+                
+                return false;
             });
 
             const uniqueMap = new Map();
             validItems.forEach(item => {
                 const elvNo = item.elevatorNo || item.elevator_no;
                 if (elvNo && !uniqueMap.has(elvNo)) {
-                    // ★ 상호명 옆에 실제 건물명 표시 (예: 스타벅스 세종청사점 [세종비즈니스센터])
+                    // ★ 실제 건물명과 카카오 상호명 결합 (예: 스타벅스 세종청사점 [세종비즈니스센터])
                     let origBuldNm = String(item.buldNm || item.buld_nm || "").trim();
                     if (!origBuldNm || origBuldNm === "null" || origBuldNm.includes("없음")) {
                         item.customBuldNm = placeName;
@@ -540,7 +558,7 @@
             currentAbortController = null;
 
             if (allElevatorsData.length === 0) {
-                alert(`해당 장소(${placeName})에 등록된 승객용 승강기가 없거나, 데이터가 일치하지 않습니다.\n데이터 누락이 의심되면 [도로명/지번] 모드로 '${address1}'을 직접 검색해 보세요.`);
+                alert(`해당 장소(${placeName})에 등록된 승객용 승강기가 없거나, 데이터가 일치하지 않습니다.\n데이터 누락이 의심되면 [도로명/지번] 모드로 '${targetAddress1}'을 직접 검색해 보세요.`);
                 return;
             }
 
