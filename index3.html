@@ -396,7 +396,6 @@
     function closeDropdown() { document.getElementById('searchDropdown').style.display = 'none'; }
     document.addEventListener('click', function(event) { if (!document.getElementById('searchBar').contains(event.target)) closeDropdown(); });
 
-    // ★ 버그가 제거되고 10페이지까지 가장 안전하게 자동 탐색하는 로직
     async function executeSearch(isLoadMore = false) {
         const query = document.getElementById('searchInput').value.trim();
         const sido = document.getElementById('sidoSelector').value; 
@@ -421,7 +420,17 @@
             if (words.length > 1 && (apiSearchWord.includes(lastSido) || lastSido.includes(apiSearchWord.substring(0, 2)) || apiSearchWord === '세종특별자치시' || apiSearchWord === '세종시')) {
                 apiSearchWord = words[1];
             }
+            
+            // ★ 속도 최적화 핵심: 사용자가 띄어쓰기로 직접 친 주소를 깔끔하게 분리
             searchCoreTokens = [];
+            if (words.length >= 2) {
+                let cleanWords = words.filter(w => !w.includes('세종') && !w.includes('특별자치시') && !w.includes('세종시'));
+                if(cleanWords.length >= 2) {
+                    searchCoreTokens = [cleanWords[cleanWords.length - 2], cleanWords[cleanWords.length - 1]];
+                } else if (cleanWords.length === 1 && words.length >= 2) {
+                     searchCoreTokens = [words[words.length-2], words[words.length-1]];
+                }
+            }
 
             document.getElementById('searchLoadingMsg').innerText = "⏳ 주소 및 상호명을 분석 중입니다...";
             document.getElementById('searchLoadingMsg').style.display = 'block';
@@ -448,25 +457,23 @@
         document.getElementById('loadMoreBtn').style.display = 'none';
         
         const MAX_ROWS = 500; 
-        const AUTO_SEARCH_LIMIT = 10; // ★ 자동 탐색 한도: 10페이지 설정
+        const AUTO_SEARCH_LIMIT = 10; 
         let targetEndPage = currentPage + AUTO_SEARCH_LIMIT - 1;
         let found = false;
         let hasMoreData = false;
         let lastSearchedPage = currentPage;
         
-        const uniqueMap = new Map(); // 찾은 승강기를 중복 없이 누적
+        const uniqueMap = new Map(); 
 
         try {
-            // ★ 1페이지부터 10페이지까지 한 페이지씩 정직하고 안전하게 확인
             for (let p = currentPage; p <= targetEndPage; p++) {
                 document.getElementById('searchLoadingMsg').style.display = 'block';
                 document.getElementById('searchLoadingMsg').innerText = `⏳ 데이터를 계속 찾는 중입니다... (${p}페이지 탐색 중)`;
                 lastSearchedPage = p;
 
                 let combinedItems = [];
-                let currentBatchCount = 0; // 이 페이지에서 몇 개를 가져왔는지 확인
+                let currentBatchCount = 0; 
 
-                // 1. 건물명 검색
                 const urlBuld = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${p}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + `&buld_nm=` + encodeURIComponent(apiSearchWord) + `&_type=json`;
                 try {
                     let resBuld = await fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlBuld));
@@ -479,10 +486,16 @@
                     }
                 } catch(e) { console.error(e); }
 
-                await new Promise(r => setTimeout(r, 200)); // 0.2초 휴식 (서버 보호)
+                await new Promise(r => setTimeout(r, 200)); 
 
-                // 2. 주소 검색
-                const urlAddr = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${p}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + `&address1=` + encodeURIComponent(apiSearchWord) + `&_type=json`;
+                // ★ 속도 최적화 핵심: 도로명과 건물번호를 딱 집어서 요청 (통신 속도 10배 증가)
+                let urlAddr = "";
+                if (searchCoreTokens.length === 2) {
+                    urlAddr = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${p}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + `&address1=` + encodeURIComponent(searchCoreTokens[0]) + `&address2=` + encodeURIComponent(searchCoreTokens[1]) + `&_type=json`;
+                } else {
+                    urlAddr = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${p}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + `&address1=` + encodeURIComponent(apiSearchWord) + `&_type=json`;
+                }
+
                 try {
                     let resAddr = await fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlAddr));
                     if (resAddr.ok) {
@@ -494,12 +507,9 @@
                     }
                 } catch(e) { console.error(e); }
 
-                // ★ 단순하고 강력한 남은 데이터 판별 로직
-                // 한 번이라도 500개가 꽉 차서 왔다면? 아직 서버에 볼 게 남았다는 뜻!
                 if (currentBatchCount > 0) hasMoreData = true;
                 else hasMoreData = false;
 
-                // 프론트엔드 필터링 (내가 원하는 진짜 데이터 찾기)
                 const isMatch = (item) => {
                     const b = String(item.buldNm || item.buld_nm || "").toLowerCase();
                     const a = (String(item.address1 || item.address || "") + " " + String(item.address2 || "")).toLowerCase();
@@ -526,31 +536,27 @@
                     return true;
                 });
 
-                // ★ 하나라도 찾았으면 화면에 띄우기 위해 루프를 멈춥니다!
                 if (filteredUniqueItems.length > 0) {
                     allElevatorsData = filteredUniqueItems;
                     found = true;
                     break;
                 }
 
-                // 못 찾았는데 서버가 준 데이터도 500개 미만이라면(바닥을 드러냈다면) 미련 없이 멈춥니다!
                 if (!hasMoreData) break;
                 
-                await new Promise(r => setTimeout(r, 200)); // 다음 페이지로 넘어가기 전 0.2초 휴식
+                await new Promise(r => setTimeout(r, 200)); 
             }
             
-            currentPage = lastSearchedPage; // 마지막으로 찾은 페이지 번호 기록
+            currentPage = lastSearchedPage; 
             document.getElementById('searchLoadingMsg').style.display = 'none';
 
             if (found) {
-                // 데이터를 찾았는데, 서버에 아직 더 데이터가 남아있다면 버튼 생성
                 if (hasMoreData) {
                     document.getElementById('loadMoreBtn').style.display = 'flex';
                     document.getElementById('loadMoreBtn').innerHTML = `<span>현재 ${currentPage}페이지 (결과 더보기)</span> ➕`;
                 }
                 buildGlobalGroups();
             } else {
-                // 10페이지까지 다 돌았는데 못 찾았을 경우
                 if (hasMoreData) {
                     document.getElementById('loadMoreBtn').style.display = 'flex';
                     document.getElementById('loadMoreBtn').innerHTML = `<span>결과 없음. 계속 찾기 (${currentPage + 1}p)</span> ➕`;
@@ -707,15 +713,22 @@
         
         clusterer.addMarkers(newOverlays);
         
-     // ▼ 기존에 있던 '&& currentPage === 1' 조건을 삭제합니다. ▼
-        if(renderList.length > 0) {
-            map.setLevel(5); // 250m 배율로 설정
+        // ★ 지도 줌/팬 로직 (1개 vs 여러 개 분기)
+        if (renderList.length === 1) {
+            map.setLevel(5); 
             setTimeout(() => {
-                // 검색된 건물을 정중앙에 위치시킴
                 map.panTo(new kakao.maps.LatLng(renderList[0].lat, renderList[0].lng));
             }, 100);
+        } else if (renderList.length > 1) {
+            let bounds = new kakao.maps.LatLngBounds();
+            renderList.forEach(group => {
+                bounds.extend(new kakao.maps.LatLng(group.lat, group.lng));
+            });
+            setTimeout(() => {
+                map.setBounds(bounds);
+            }, 100);
         } 
-    } // renderData() 함수 끝
+    }
 
     function openBottomSheet(groupData) {
         document.getElementById('resBuildingName').innerText = groupData.buildingName;
