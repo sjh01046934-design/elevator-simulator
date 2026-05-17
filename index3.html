@@ -118,7 +118,7 @@
                 <option value="경남">경남</option>
                 <option value="제주">제주</option>
             </select>
-            <input type="text" id="searchInput" placeholder="주소 또는 건물명 검색" autocomplete="off" 
+            <input type="text" id="searchInput" placeholder="주소 또는 기관명 검색" autocomplete="off" 
                    onfocus="handleInputFocus()" onclick="handleInputFocus()" oninput="handleInput()" onkeypress="handleKeyPress(event)">
             <span class="icon-clear" onmousedown="fastClearSearch(event)" ontouchstart="fastClearSearch(event)">X</span>
             <span class="icon-search" onmousedown="fastExecute(event)" ontouchstart="fastExecute(event)">🔍</span>
@@ -126,7 +126,7 @@
             <div class="search-dropdown" id="searchDropdown"></div>
         </div>
 
-        <div id="searchLoadingMsg">⏳ API 서버에서 데이터를 탐색 중입니다...</div>
+        <div id="searchLoadingMsg">⏳ 실시간 데이터 검색 중입니다...</div>
     </div>
 
     <div class="bottom-sheet" id="bottomSheet">
@@ -165,6 +165,7 @@
     let map;
     let clusterer; 
     let geocoder; 
+    let places; // 카카오 장소 검색 API 객체
     
     let currentPage = 1;
     let lastQuery = '';
@@ -187,6 +188,7 @@
         const options = { center: new kakao.maps.LatLng(36.1, 127.7), level: 13 };
         map = new kakao.maps.Map(container, options);
         geocoder = new kakao.maps.services.Geocoder(); 
+        places = new kakao.maps.services.Places(); // 장소 검색 객체 초기화
 
         clusterer = new kakao.maps.MarkerClusterer({
             map: map,
@@ -199,9 +201,44 @@
             map.setLevel(level, {anchor: cluster.getCenter()});
         });
 
-        kakao.maps.event.addListener(map, 'click', function() { 
+        // ★ [기능 1] 지도 클릭 시 주소 가져와서 즉시 검색!
+        kakao.maps.event.addListener(map, 'click', function(mouseEvent) { 
             closeBottomSheet(); 
             closeDropdown();
+
+            var latlng = mouseEvent.latLng;
+            document.getElementById('searchLoadingMsg').innerText = "📍 선택한 위치의 건물을 파악 중입니다...";
+            document.getElementById('searchLoadingMsg').style.display = 'block';
+
+            geocoder.coord2Address(latlng.getLng(), latlng.getLat(), function(result, status) {
+                if (status === kakao.maps.services.Status.OK) {
+                    var roadAddr = result[0].road_address;
+                    var jibunAddr = result[0].address;
+                    
+                    var searchTarget = "";
+                    if (roadAddr && roadAddr.road_name && roadAddr.main_building_no) {
+                        searchTarget = roadAddr.road_name + " " + roadAddr.main_building_no;
+                    } else if (jibunAddr) {
+                        searchTarget = jibunAddr.region_3depth_name + " " + jibunAddr.main_address_no;
+                        if(jibunAddr.sub_address_no) searchTarget += "-" + jibunAddr.sub_address_no;
+                    }
+
+                    if (searchTarget) {
+                        document.getElementById('searchInput').value = searchTarget;
+                        // 카카오 API가 주는 도 이름(예: 세종특별자치시)을 필터 박스 형식에 맞게 변환
+                        const sidoMap = {"서울특별시":"서울","부산광역시":"부산","대구광역시":"대구","인천광역시":"인천","광주광역시":"광주","대전광역시":"대전","울산광역시":"울산","세종특별자치시":"세종","경기도":"경기","강원특별자치도":"강원","충청북도":"충북","충청남도":"충남","전라북도":"전북","전북특별자치도":"전북","전라남도":"전남","경상북도":"경북","경상남도":"경남","제주특별자치도":"제주"};
+                        let rawSido = result[0].address.region_1depth_name;
+                        document.getElementById('sidoSelector').value = sidoMap[rawSido] || rawSido.substring(0,2);
+                        
+                        executeSearch(false); // 즉시 검색 트리거
+                    } else {
+                        document.getElementById('searchLoadingMsg').style.display = 'none';
+                        alert("해당 위치의 주소를 파악할 수 없습니다.");
+                    }
+                } else {
+                    document.getElementById('searchLoadingMsg').style.display = 'none';
+                }
+            });
         });
     }
 
@@ -366,7 +403,7 @@
         closeBottomSheet();
 
         if (query === '') {
-            alert("조회할 주소나 건물명을 입력해주세요.");
+            alert("조회할 주소나 건물명, 기관명을 입력해주세요.");
             return;
         }
 
@@ -384,17 +421,62 @@
         }
 
         try {
-            document.getElementById('searchLoadingMsg').innerText = `⏳ API 서버에서 데이터를 탐색 중입니다 (${currentPage}페이지)...`;
+            document.getElementById('searchLoadingMsg').innerText = "⏳ 데이터를 검색 중입니다...";
             document.getElementById('searchLoadingMsg').style.display = 'block';
             
             const MAX_ROWS = 500; 
-            const keywords = lastQuery.trim().split(/\s+/);
-            const firstWord = keywords[0];
+            let fetches = [];
+            let urlsToFetch = new Set();
+            let placeAddressForFilter = ""; // POI 주소 담아둘 변수
 
-            let fetches = [
-                fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${currentPage}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + `&buld_nm=` + encodeURIComponent(lastQuery) + `&_type=json`)).then(res => res.ok ? res.json() : {}),
-                fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${currentPage}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + `&address1=` + encodeURIComponent(firstWord) + `&_type=json`)).then(res => res.ok ? res.json() : {})
-            ];
+            const addFetch = (params) => {
+                const url = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${currentPage}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + params + '&_type=json';
+                if (!urlsToFetch.has(url)) {
+                    urlsToFetch.add(url);
+                    fetches.push(fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(url)).then(res => res.ok ? res.json() : {}));
+                }
+            };
+
+            // ★ [기능 2] 카카오 장소 검색 API를 활용한 기관명/상호명 (POI) 역탐색
+            // 사용자가 "스타벅스"나 "안전공단" 등을 검색했을 때 숨은 주소를 찾아냅니다.
+            if (!isLoadMore) {
+                let placeResult = await new Promise(resolve => {
+                    places.keywordSearch(lastQuery, (data, status) => {
+                        if (status === kakao.maps.services.Status.OK && data.length > 0) resolve(data[0]);
+                        else resolve(null);
+                    }, { size: 1 });
+                });
+
+                if (placeResult) {
+                    let fullAddr = placeResult.road_address_name || placeResult.address_name;
+                    // 도로명 추출 (예: 한누리대로 169)
+                    const match = fullAddr.match(/([가-힣a-zA-Z]+길|[가-힣a-zA-Z]+로)\s*(\d+(?:-\d+)?)/);
+                    if (match) {
+                        const addr1 = match[1];
+                        const addr2 = match[2];
+                        addFetch(`&address1=${encodeURIComponent(addr1)}&address2=${encodeURIComponent(addr2)}`);
+                        placeAddressForFilter = (addr1 + addr2).toLowerCase(); // 필터링을 위해 기억
+                    } else {
+                        // 지번 추출 (예: 보람동 123)
+                        const jibunMatch = fullAddr.match(/([가-힣\d]+동|[가-힣\d]+읍|[가-힣\d]+면)\s*(\d+(?:-\d+)?)/);
+                        if(jibunMatch){
+                            addFetch(`&address1=${encodeURIComponent(jibunMatch[1])}&address2=${encodeURIComponent(jibunMatch[2])}`);
+                            placeAddressForFilter = (jibunMatch[1] + jibunMatch[2]).toLowerCase();
+                        }
+                    }
+                }
+            }
+
+            // 기본 검색 연산 (건물명, 주소)
+            addFetch(`&buld_nm=${encodeURIComponent(lastQuery)}`);
+            addFetch(`&address1=${encodeURIComponent(lastQuery)}`);
+
+            const parts = lastQuery.trim().split(/\s+/);
+            if (parts.length >= 2) {
+                const addr1 = parts.slice(0, -1).join(" "); 
+                const addr2 = parts[parts.length - 1];      
+                addFetch(`&address1=${encodeURIComponent(addr1)}&address2=${encodeURIComponent(addr2)}`);
+            }
 
             const results = await Promise.all(fetches);
 
@@ -404,20 +486,26 @@
             results.forEach(res => {
                 let items = res.response?.body?.items?.item || [];
                 if (!Array.isArray(items)) items = [items];
-                
-                let totalCount = res.response?.body?.totalCount || 0;
-                
-                if (totalCount > currentPage * MAX_ROWS || items.length >= MAX_ROWS) {
+                combinedItems.push(...items);
+
+                if (items.length >= MAX_ROWS) {
                     hasMoreData = true;
                 }
-
-                combinedItems.push(...items);
             });
 
+            const keywords = lastQuery.toLowerCase().trim().split(/\s+/);
+            
+            // ★ 프론트엔드 검증 로직: 원본 검색어와 POI로 찾아낸 주소 중 하나라도 맞으면 통과!
             const isMatch = (item) => {
                 const b = String(item.buldNm || item.buld_nm || "").toLowerCase();
                 const a = (String(item.address1 || item.address || "") + " " + String(item.address2 || "")).toLowerCase();
-                return keywords.every(kw => b.includes(kw.toLowerCase()) || a.includes(kw.toLowerCase()));
+                
+                // 1. 원본 검색어 포함 확인
+                let matchOriginal = keywords.every(kw => b.includes(kw) || a.includes(kw));
+                // 2. 카카오 장소 검색으로 찾아낸 주소 포함 확인
+                let matchPOI = placeAddressForFilter !== "" && a.replace(/\s+/g, '').includes(placeAddressForFilter);
+                
+                return matchOriginal || matchPOI;
             };
 
             let validItems = combinedItems.filter(isMatch);
@@ -439,17 +527,16 @@
                 return true;
             });
 
-            document.getElementById('searchLoadingMsg').style.display = 'none';
-
             if (filteredUniqueItems.length === 0) {
+                document.getElementById('searchLoadingMsg').style.display = 'none';
                 if (hasMoreData) {
+                    alert(`현재 페이지에는 일치하는 결과가 없습니다.\n'다음 페이지 로드' 버튼을 눌러 계속 탐색해주세요.`);
                     document.getElementById('loadMoreBtn').style.display = 'flex';
                     document.getElementById('loadMoreBtn').innerHTML = `<span>다음 페이지 로드 (${currentPage + 1}p)</span> ➕`;
-                    alert(`현재 ${currentPage}페이지(500건) 내에는 '${lastQuery}' 결과가 없습니다.\n데이터가 더 있으니 '다음 페이지 로드' 버튼을 눌러 계속 찾아주세요.`);
                 } else {
-                    document.getElementById('loadMoreBtn').style.display = 'none';
                     if (isLoadMore) alert("더 이상 불러올 승강기 데이터가 없습니다.");
-                    else alert(`[${lastSido}] 지역에 "${lastQuery}" (으)로 검색된 결과가 없습니다.`);
+                    else alert(`[${lastSido}] 지역에 "${lastQuery}" (으)로 검색된 승객용 승강기가 없습니다.`);
+                    document.getElementById('loadMoreBtn').style.display = 'none';
                 }
                 return;
             }
@@ -557,6 +644,7 @@
                 });
             });
         })).then(() => {
+            document.getElementById('searchLoadingMsg').style.display = 'none';
             renderData();
         });
     }
@@ -564,23 +652,21 @@
     function renderData() {
         let renderList = [...globalGroups];
 
-        const keywords = lastQuery.trim().split(/\s+/);
+        const queryLower = lastQuery.replace(/\s+/g, '').toLowerCase();
         
         const getScore = (g) => {
-            const name = g.buildingName.toLowerCase();
-            const addr = g.address.toLowerCase();
+            const name = g.buildingName.replace(/\s+/g, '').toLowerCase();
+            const addr = g.address.replace(/\s+/g, '').toLowerCase();
             let score = 0;
             
-            keywords.forEach(kw => {
-                const lowerKw = kw.toLowerCase();
-                if (name === lowerKw) score += 1000;
-                else if (name.startsWith(lowerKw)) score += 500;
-                else if (name.includes(lowerKw)) score += 100;
-                
-                if (addr === lowerKw) score += 1000;
-                else if (addr.startsWith(lowerKw)) score += 500;
-                else if (addr.includes(lowerKw)) score += 100;
-            });
+            if (name === queryLower) score += 1000;
+            else if (name.startsWith(queryLower)) score += 500;
+            else if (name.includes(queryLower)) score += 100;
+            
+            if (addr === queryLower) score += 1000;
+            else if (addr.startsWith(queryLower)) score += 500;
+            else if (addr.includes(queryLower)) score += 100;
+            
             score -= name.length;
             return score;
         };
