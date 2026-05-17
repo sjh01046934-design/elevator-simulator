@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>승강기 설치유무검색 - 한국승강기안전공단</title>
     
-    <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=59f58919246c9ac3780496fc7e2c0d74&libraries=services,clusterer&autoload=false"></script>
+    <script type="text/javascript" src="//dapi.kakao.com/
+        v2/maps/sdk.js?appkey=59f58919246c9ac3780496fc7e2c0d74&libraries=services,clusterer&autoload=false"></script>
     
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -690,12 +691,18 @@
             const content = document.createElement('div');
             content.className = isAllStopped ? 'custom-marker stopped' : 'custom-marker';
             content.innerHTML = markerSvgIcon + `<span>${group.buildingName} (${group.elevators.length}대)</span>`;
-            content.onclick = function() { openBottomSheet(group); };
+            
+            // ★ 1. 이벤트가 지도로 흘러가지 않도록 방어
+            content.onclick = function(event) { 
+                if (event) event.stopPropagation();
+                openBottomSheet(group); 
+            };
 
             newOverlays.push(new kakao.maps.CustomOverlay({
                 position: new kakao.maps.LatLng(group.lat, group.lng),
                 content: content,
-                yAnchor: 1
+                yAnchor: 1,
+                clickable: true // ★ 2. 핵심: 마커 클릭 시 지도 클릭 이벤트를 완벽히 차단
             }));
         });
         
