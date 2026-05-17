@@ -707,10 +707,11 @@
         
         clusterer.addMarkers(newOverlays);
         
-       if(renderList.length > 0 && currentPage === 1) {
-            map.setLevel(5); // 250m 축척에 해당하는 레벨로 변경
+     // ▼ 기존에 있던 '&& currentPage === 1' 조건을 삭제합니다. ▼
+        if(renderList.length > 0) {
+            map.setLevel(5); // 250m 배율로 설정
             setTimeout(() => {
-                // 오프셋 없이 완벽한 정중앙 좌표로 이동
+                // 검색된 건물을 정중앙에 위치시킴
                 map.panTo(new kakao.maps.LatLng(renderList[0].lat, renderList[0].lng));
             }, 100);
         } 
