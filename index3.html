@@ -153,7 +153,7 @@
     let currentPage = 1;
     let lastQuery = '';
     let lastSido = '';
-    let allElevatorsData = []; // 누적된 고유 승강기 데이터 리스트
+    let allElevatorsData = []; 
 
     const DEPLOY_CONFIG = { CLOUDFLARE_WORKER_URL: 'https://wild-river-017e.sjh01046934.workers.dev/?url=' };
     const API_CONFIG = { SERVICE_KEY: 'bf828022bb4535034959395893c59397fff91ac219c93670610575093972289d', BASE_URL: 'https://apis.data.go.kr/B553664/ElevatorInformationService/getElevatorListM' };
@@ -161,7 +161,8 @@
 
     function initMap() {
         const container = document.getElementById('map');
-        const options = { center: new kakao.maps.LatLng(36.4792, 127.2892), level: 5 };
+        // ★ 대한민국 전체 지도가 보이도록 축척(level: 13) 및 중심 좌표 변경
+        const options = { center: new kakao.maps.LatLng(36.1, 127.7), level: 13 };
         map = new kakao.maps.Map(container, options);
         geocoder = new kakao.maps.services.Geocoder(); 
 
@@ -193,10 +194,8 @@
             return;
         }
 
-        // 300ms 디바운스 적용하여 API 호출 최소화
         debounceTimer = setTimeout(async () => {
             try {
-                // 자동완성용 가벼운 호출 (20건만)
                 const url = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=1&numOfRows=20&sido=${encodeURIComponent(sido)}&buld_nm=${encodeURIComponent(val)}&_type=json`;
                 const proxyUrl = DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(url);
                 const res = await fetch(proxyUrl).then(r => r.ok ? r.json() : {});
@@ -204,7 +203,6 @@
                 let items = res.response?.body?.items?.item || [];
                 if (!Array.isArray(items)) items = [items];
                 
-                // 고유한 건물명 추출
                 const suggestions = [...new Set(items.map(i => i.buldNm || i.buld_nm).filter(Boolean))];
                 renderAutocomplete(suggestions, val);
             } catch (error) {
@@ -270,9 +268,9 @@
 
     function saveRecentSearch(sido, query) {
         let recents = JSON.parse(localStorage.getItem('elevator_recent_searches') || '[]');
-        recents = recents.filter(r => !(r.sido === sido && r.query === query)); // 중복 제거
-        recents.unshift({sido, query}); // 최신 항목을 앞에 추가
-        if(recents.length > 7) recents.pop(); // 최대 7개 유지
+        recents = recents.filter(r => !(r.sido === sido && r.query === query)); 
+        recents.unshift({sido, query}); 
+        if(recents.length > 7) recents.pop(); 
         localStorage.setItem('elevator_recent_searches', JSON.stringify(recents));
     }
 
@@ -299,7 +297,6 @@
         document.getElementById('searchDropdown').style.display = 'none';
     }
 
-    // 외부 클릭 시 드롭다운 닫기
     document.addEventListener('click', function(event) {
         const searchBar = document.getElementById('searchBar');
         if (!searchBar.contains(event.target)) {
@@ -307,8 +304,7 @@
         }
     });
 
-
-    // --- 메인 검색 기능 (더보기 포함) ---
+    // --- 메인 검색 기능 ---
     async function executeSearch(isLoadMore = false) {
         const query = document.getElementById('searchInput').value.trim();
         const sido = document.getElementById('sidoSelector').value; 
@@ -323,7 +319,6 @@
             return;
         }
 
-        // 새 검색일 경우 초기화
         if (!isLoadMore) {
             currentPage = 1;
             allElevatorsData = [];
@@ -332,9 +327,7 @@
             saveRecentSearch(sido, query);
             document.getElementById('loadMoreBtn').style.display = 'none';
         } else {
-            // 더보기일 경우 페이지 증가
             currentPage++;
-            // 기존 쿼리 유지
             document.getElementById('searchInput').value = lastQuery;
             document.getElementById('sidoSelector').value = lastSido;
         }
@@ -359,9 +352,11 @@
             if (!Array.isArray(itemsBuld)) itemsBuld = [itemsBuld];
             if (!Array.isArray(itemsAddr)) itemsAddr = [itemsAddr];
 
+            // ★ 서버에서 불러온 원본 데이터가 500개(MAX_ROWS)를 채웠는지 확인
+            const hasMoreData = (itemsBuld.length >= MAX_ROWS || itemsAddr.length >= MAX_ROWS);
+
             let combinedItems = [...itemsBuld, ...itemsAddr];
             
-            // 필터링 
             const loweredQuery = lastQuery.toLowerCase();
             combinedItems = combinedItems.filter(item => {
                 const buldNm = String(item.buldNm || item.buld_nm || "").toLowerCase();
@@ -369,7 +364,6 @@
                 return buldNm.includes(loweredQuery) || address.includes(loweredQuery);
             });
 
-            // 누적 데이터 합치기 및 중복 제거
             const allItems = [...allElevatorsData, ...combinedItems];
             const uniqueMap = new Map();
             allItems.forEach(item => {
@@ -395,16 +389,15 @@
                 return;
             }
 
-            // 글로벌 리스트 갱신
             allElevatorsData = filteredUniqueItems;
 
-            // 더보기 버튼 노출 여부 (이번 호출에서 한쪽이라도 MAX_ROWS를 가져왔다면 더 있을 가능성 존재)
-            if (itemsBuld.length === MAX_ROWS || itemsAddr.length === MAX_ROWS) {
+            // ★ 더보기 버튼 노출 처리 (불러온 원본 데이터가 500개 미만이면 숨김)
+            if (hasMoreData) {
                 document.getElementById('loadMoreBtn').style.display = 'flex';
                 document.getElementById('loadMoreBtn').innerHTML = `<span>현재 ${currentPage}페이지 (결과 더보기)</span> ➕`;
             } else {
                 document.getElementById('loadMoreBtn').style.display = 'none';
-                if(isLoadMore) alert("모든 데이터를 불러왔습니다.");
+                if(isLoadMore) alert("모든 검색 결과를 불러왔습니다.");
             }
 
             processAndRender(allElevatorsData);
@@ -532,7 +525,6 @@
             markers.push(customOverlay);
         });
         
-        // 처음 검색(1페이지)일 때만 지도 중심을 이동시킴 (더보기 시에는 화면 고정)
         if(dataArray.length > 0 && currentPage === 1) {
             map.setCenter(new kakao.maps.LatLng(dataArray[0].lat, dataArray[0].lng));
             map.setLevel(4); 
@@ -555,7 +547,6 @@
                 displayStateText = "정상운행";
             }
 
-            // ★ 설치위치 td 에 style="text-align:center;" 적용
             const tableHtml = `
                 <div class="elv-item-title">
                     <span>#${index + 1} 호기 <span style="font-weight:normal; color:#777;">(${elv.elevatorNo})</span></span>
