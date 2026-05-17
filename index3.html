@@ -442,7 +442,7 @@
         if (event) { event.preventDefault(); event.stopPropagation(); }
         
         closeDropdown();
-        cancelSearch(); 
+        cancelSearch(); // 이전 통신 끊기
         currentAbortController = new AbortController();
         const signal = currentAbortController.signal;
 
@@ -455,15 +455,17 @@
             let address1 = "";
             let address2 = "";
 
+            // 주소 파싱 공백 기준 분리
             let words = address.trim().split(/\s+/);
             if (words.length >= 2) {
-                address2 = words.pop(); 
-                address1 = words.pop(); 
+                address2 = words.pop(); // 예: "411" 또는 "10-5"
+                address1 = words.pop(); // 예: "한누리대로" 또는 "산울2로"
             } else {
                 address1 = address;
             }
 
-            const url = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&numOfRows=500&sido=${encodeURIComponent(sido)}&address1=${encodeURIComponent(address1)}&address2=${encodeURIComponent(address2)}&_type=json&pageNo=1`;
+            // 공공데이터 서버에는 도로명(address1)만 넣어서 넉넉하게 요청 (번지수는 아래에서 정밀 필터링)
+            const url = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&numOfRows=500&sido=${encodeURIComponent(sido)}&address1=${encodeURIComponent(address1)}&_type=json&pageNo=1`;
 
             let res = await fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(url), { signal });
             if (!res.ok) throw new Error("서버 응답 오류");
@@ -472,17 +474,20 @@
             let items = data.response?.body?.items?.item || [];
             if (!Array.isArray(items)) items = [items];
             
-            const queryNoSpace = address2.replace(/\s+/g, '');
+            // ★ [버그 수정 핵심] 주소 매칭 조건 유연화
+            // 카카오에서 준 번지수(예: 411)가 승강기 데이터 주소에 "포함"되어 있는지 검사 (411-0, 411동 모두 매칭 성공)
+            const targetMainNo = address2.replace(/\s+/g, '').toLowerCase(); 
+            
             let validItems = items.filter(item => {
-                const a = (String(item.address1 || item.address || "") + String(item.address2 || "")).replace(/\s+/g, '');
-                return a.includes(queryNoSpace);
+                const fullAddr = (String(item.address1 || item.address || "") + " " + String(item.address2 || "")).replace(/\s+/g, '').toLowerCase();
+                return fullAddr.includes(targetMainNo);
             });
 
             const uniqueMap = new Map();
             validItems.forEach(item => {
                 const elvNo = item.elevatorNo || item.elevator_no;
                 if (elvNo && !uniqueMap.has(elvNo)) {
-                    item.customBuldNm = placeName; 
+                    item.customBuldNm = placeName; // 카카오 상호명으로 마커 이름 덮어쓰기
                     uniqueMap.set(elvNo, item);
                 }
             });
@@ -496,7 +501,7 @@
             currentAbortController = null;
 
             if (allElevatorsData.length === 0) {
-                alert(`해당 건물(${placeName})에 등록된 승객용 승강기가 없거나, 데이터가 일치하지 않습니다.`);
+                alert(`해당 건물(${placeName})의 주소(${address}) 기반으로 조회된 승객용 승강기가 없습니다.\n데이터 누락이 의심된다면 [건물/아파트명] 모드로 검색해 보세요.`);
                 return;
             }
 
