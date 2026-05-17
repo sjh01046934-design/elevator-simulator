@@ -21,12 +21,6 @@
         
         .icon-clear { background: #ccc; color: white; border-radius: 50%; width: 18px; height: 18px; display: flex; justify-content: center; align-items: center; font-size: 10px; margin-right: 12px; cursor: pointer; font-weight: bold; }
         .icon-search { color: #555; font-size: 20px; cursor: pointer; font-weight: bold; }
-        
-        /* 빠른 필터 칩 영역 */
-        .filter-chips-container { display: flex; gap: 8px; overflow-x: auto; margin-top: 10px; padding-bottom: 4px; padding-left: 2px; }
-        .filter-chips-container::-webkit-scrollbar { display: none; }
-        .filter-chip { flex-shrink: 0; background: white; border: 1px solid #dcdcdc; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; color: #555; box-shadow: 0 2px 4px rgba(0,0,0,0.05); cursor: pointer; transition: all 0.2s; }
-        .filter-chip.active { background: #1e4e79; color: white; border-color: #1e4e79; }
 
         #searchLoadingMsg { display: none; text-align: center; font-size: 12px; font-weight: bold; color: #1e4e79; margin-top: 8px; background: rgba(255,255,255,0.9); padding: 4px; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
 
@@ -41,9 +35,9 @@
         .item-tag { font-size: 10px; background: #edf2f7; color: #4a5568; padding: 2px 6px; border-radius: 4px; }
         .item-delete { color: #ccc; padding: 4px; font-size: 14px; }
         
-        /* 플로팅 액션 버튼 (GPS, 초기화) */
-        .fab-container { position: absolute; bottom: 30px; right: 16px; display: flex; flex-direction: column; gap: 12px; z-index: 9; }
-        .fab-btn { width: 44px; height: 44px; border-radius: 50%; background: white; border: 1px solid #dcdcdc; display: flex; justify-content: center; align-items: center; font-size: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); cursor: pointer; color: #333; transition: background 0.2s; }
+        /* 텍스트형 플로팅 액션 버튼 (첫화면, 내위치) */
+        .fab-container { position: absolute; bottom: 30px; right: 16px; display: flex; flex-direction: column; gap: 10px; z-index: 9; }
+        .fab-btn { background: white; border: 1px solid #dcdcdc; padding: 10px 14px; border-radius: 20px; font-size: 13px; font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.15); cursor: pointer; color: #1e4e79; transition: background 0.2s; text-align: center; }
         .fab-btn:active { background: #f0f0f0; }
 
         /* 더보기 버튼 */
@@ -94,8 +88,8 @@
 
     <!-- 플로팅 액션 버튼 -->
     <div class="fab-container">
-        <div class="fab-btn" onclick="resetMap()" title="초기화">🔄</div>
-        <div class="fab-btn" onclick="moveToMyLocation()" title="내 위치 탐색">📍</div>
+        <div class="fab-btn" onclick="resetMap()">첫화면</div>
+        <div class="fab-btn" onclick="moveToMyLocation()">내위치</div>
     </div>
 
     <!-- 데이터 더보기 버튼 -->
@@ -103,7 +97,7 @@
         <span>현재 1페이지 (결과 더보기)</span> ➕
     </button>
 
-    <!-- 검색바 및 필터 영역 -->
+    <!-- 검색바 영역 -->
     <div class="search-bar-wrapper">
         <div class="search-bar" id="searchBar">
             <select id="sidoSelector" class="sido-select" onchange="document.getElementById('searchInput').focus()">
@@ -125,20 +119,12 @@
                 <option value="경남">경남</option>
                 <option value="제주">제주</option>
             </select>
-            <!-- ★ onclick을 추가하여 이미 포커스된 상태에서 클릭해도 작동하도록 수정 -->
             <input type="text" id="searchInput" placeholder="주소 또는 건물명 검색" autocomplete="off" 
                    onfocus="handleInputFocus()" onclick="handleInputFocus()" oninput="handleInput()" onkeypress="handleKeyPress(event)">
             <span class="icon-clear" onclick="clearSearch()">X</span>
             <span class="icon-search" onclick="executeSearch(false)">🔍</span>
             
             <div class="search-dropdown" id="searchDropdown"></div>
-        </div>
-        
-        <!-- 빠른 필터링 칩 -->
-        <div class="filter-chips-container">
-            <div class="filter-chip" id="chip-normalOnly" onclick="toggleFilter('normalOnly')">🟢 정상운행만</div>
-            <div class="filter-chip" id="chip-wheelchair" onclick="toggleFilter('wheelchair')">♿ 장애인/수직리프트</div>
-            <div class="filter-chip" id="chip-noEscalator" onclick="toggleFilter('noEscalator')">🪜 에스컬레이터 제외</div>
         </div>
 
         <div id="searchLoadingMsg">⏳ 데이터를 불러오는 중입니다...</div>
@@ -187,13 +173,10 @@
     let lastQuery = '';
     let lastSido = '';
     
-    // ★ 렉 해결의 핵심! 
-    // 누적된 모든 API 원본 데이터와 캐싱된 지오코딩 좌표를 메모리에 기억합니다.
+    // 메모리 캐싱 데이터
     let allElevatorsData = []; 
     let globalGroups = []; 
     let geocodeCache = new Map(); 
-    
-    let currentFilters = { normalOnly: false, wheelchair: false, noEscalator: false };
 
     const DEPLOY_CONFIG = { CLOUDFLARE_WORKER_URL: 'https://wild-river-017e.sjh01046934.workers.dev/?url=' };
     const API_CONFIG = { SERVICE_KEY: 'bf828022bb4535034959395893c59397fff91ac219c93670610575093972289d', BASE_URL: 'https://apis.data.go.kr/B553664/ElevatorInformationService/getElevatorListM' };
@@ -222,7 +205,7 @@
         });
     }
 
-    // --- 유틸 기능 (리셋, 위치탐색) ---
+    // --- 유틸 기능 (첫화면, 내위치) ---
     function resetMap() {
         document.getElementById('searchInput').value = '';
         closeBottomSheet();
@@ -232,9 +215,6 @@
         globalGroups = [];
         clusterer.clear(); 
         document.getElementById('loadMoreBtn').style.display = 'none';
-        
-        currentFilters = { normalOnly: false, wheelchair: false, noEscalator: false };
-        document.querySelectorAll('.filter-chip').forEach(chip => chip.classList.remove('active'));
         
         map.setCenter(new kakao.maps.LatLng(36.1, 127.7));
         map.setLevel(13);
@@ -261,18 +241,6 @@
         } else {
             alert("현재 사용하시는 브라우저에서는 위치 정보를 지원하지 않습니다.");
         }
-    }
-
-    // --- 필터 시스템 (재계산 최적화) ---
-    function toggleFilter(filterKey) {
-        currentFilters[filterKey] = !currentFilters[filterKey];
-        const chip = document.getElementById('chip-' + filterKey);
-        
-        if (currentFilters[filterKey]) chip.classList.add('active');
-        else chip.classList.remove('active');
-        
-        closeBottomSheet(); 
-        applyFiltersAndRender(); // 무거운 geocoding 연산 없이 즉시 렌더링만 수행!
     }
 
     // --- 최근 검색어 드롭다운 ---
@@ -398,7 +366,6 @@
             if (!Array.isArray(itemsBuld)) itemsBuld = [itemsBuld];
             if (!Array.isArray(itemsAddr)) itemsAddr = [itemsAddr];
 
-            // ★ 더보기 버튼 버그 픽스: 띄어쓰기를 무시하고 검색어가 모두 포함되었는지 정확하게 체크
             const keywords = lastQuery.toLowerCase().trim().split(/\s+/);
             const isMatch = (item) => {
                 const b = String(item.buldNm || item.buld_nm || "").toLowerCase();
@@ -412,7 +379,6 @@
             const hasMoreData = (itemsBuld.length >= MAX_ROWS && validBuld.length > 0) || 
                                 (itemsAddr.length >= MAX_ROWS && validAddr.length > 0);
 
-            // 신규 데이터와 기존 데이터를 합쳐서 고유값 추출
             let combinedItems = [...validBuld, ...validAddr];
             const uniqueMap = new Map();
             
@@ -461,7 +427,7 @@
         }
     }
 
-    // ★ 렉 해결의 핵심: 데이터 그룹화 및 지오코딩 캐싱을 딱 1번만 실행!
+    // 그룹화 및 지오코딩 캐싱 처리
     function buildGlobalGroups() {
         const groupedMap = new Map();
 
@@ -484,11 +450,8 @@
             const isOperating = !(stts.includes('정지') || stts.includes('중지') || stts.includes('불합격') || stts.includes('고장') || stts.includes('폐기') || stts.includes('휴지'));
             
             const rawType = String(apiItem.elvtrKindNm || apiItem.elvtrDivNm || "");
-            const isWheelchair = rawType.includes("장애") || rawType.includes("휠체어");
-            const isEscalator = rawType.includes("에스컬레이터") || rawType.includes("무빙워크");
-
             let refinedType = "승객용"; 
-            if (isWheelchair && rawType.includes("화물") && rawType.includes("승객")) refinedType = "장애/승객화물용";
+            if (rawType.includes("장애") && rawType.includes("휠체어") && rawType.includes("화물") && rawType.includes("승객")) refinedType = "장애/승객화물용";
             else if (rawType.includes("에스컬레이터")) refinedType = "에스컬레이터";
             else if (rawType.includes("무빙워크")) refinedType = "무빙워크";
             else if (rawType.includes("수직") && rawType.includes("휠체어")) refinedType = "수직형휠체어리프트";
@@ -518,9 +481,7 @@
                 capacity: finalCapacity,
                 installPlace: String(apiItem.installationPlace || apiItem.installation_place || "-").trim(),
                 state: stts, 
-                isOperating: isOperating,
-                isWheelchair: isWheelchair,
-                isEscalator: isEscalator
+                isOperating: isOperating
             });
         });
 
@@ -531,7 +492,6 @@
             return new Promise((resolve) => {
                 if (group.lat && group.lng) { resolve(); return; }
                 
-                // 이전에 검색해둔 주소라면 캐시에서 바로 꺼내옴 (API 호출 방지)
                 if (geocodeCache.has(group.address)) {
                     const coords = geocodeCache.get(group.address);
                     group.lat = coords.lat;
@@ -553,28 +513,15 @@
             });
         })).then(() => {
             document.getElementById('searchLoadingMsg').style.display = 'none';
-            applyFiltersAndRender();
+            renderData();
         });
     }
 
-    // 필터 버튼 클릭 시 호출 (캐시된 데이터를 즉시 필터링하여 매우 빠름)
-    function applyFiltersAndRender() {
-        let renderList = [];
-        
-        globalGroups.forEach(group => {
-            const filteredElvs = group.elevators.filter(elv => {
-                if (currentFilters.normalOnly && !elv.isOperating) return false;
-                if (currentFilters.wheelchair && !elv.isWheelchair) return false;
-                if (currentFilters.noEscalator && elv.isEscalator) return false;
-                return true;
-            });
+    // 마커 렌더링
+    function renderData() {
+        let renderList = [...globalGroups];
 
-            if (filteredElvs.length > 0) {
-                renderList.push({ ...group, elevators: filteredElvs });
-            }
-        });
-
-        // 정확도 가중치 정렬 로직 (이전과 동일)
+        // 정확도 가중치 정렬 
         const queryLower = lastQuery.toLowerCase();
         const keywords = queryLower.trim().split(/\s+/);
         
@@ -618,13 +565,10 @@
         
         clusterer.addMarkers(newOverlays);
         
-        // 검색 첫 페이지일 때 최상단 결과로 지도 이동
         if(renderList.length > 0 && currentPage === 1) {
             map.setCenter(new kakao.maps.LatLng(renderList[0].lat, renderList[0].lng));
             map.setLevel(4); 
-        } else if (renderList.length === 0) {
-            alert("선택한 필터 조건에 맞는 승강기가 없습니다.");
-        }
+        } 
     }
 
     function openBottomSheet(groupData) {
