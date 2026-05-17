@@ -352,17 +352,25 @@
             if (!Array.isArray(itemsBuld)) itemsBuld = [itemsBuld];
             if (!Array.isArray(itemsAddr)) itemsAddr = [itemsAddr];
 
-            // ★ 서버에서 불러온 원본 데이터가 500개(MAX_ROWS)를 채웠는지 확인
-            const hasMoreData = (itemsBuld.length >= MAX_ROWS || itemsAddr.length >= MAX_ROWS);
-
-            let combinedItems = [...itemsBuld, ...itemsAddr];
-            
             const loweredQuery = lastQuery.toLowerCase();
-            combinedItems = combinedItems.filter(item => {
+            
+            // 검색어와 일치하는지 확인하는 판별 함수
+            const isMatch = (item) => {
                 const buldNm = String(item.buldNm || item.buld_nm || "").toLowerCase();
                 const address = String(item.address1 || item.address || "").toLowerCase();
                 return buldNm.includes(loweredQuery) || address.includes(loweredQuery);
-            });
+            };
+
+            // API 각각의 응답에서 '진짜 유효한' 데이터가 몇 개인지 측정
+            const validBuldCount = itemsBuld.filter(isMatch).length;
+            const validAddrCount = itemsAddr.filter(isMatch).length;
+
+            // ★ 수정된 핵심 로직: 유효한 검색 결과가 1개라도 포함된 상태에서 500개를 꽉 채웠을 때만 더보기 활성화
+            const hasMoreData = (validBuldCount > 0 && itemsBuld.length >= MAX_ROWS) || 
+                                (validAddrCount > 0 && itemsAddr.length >= MAX_ROWS);
+
+            // 두 데이터를 합친 후 유효한 데이터만 남김
+            let combinedItems = [...itemsBuld, ...itemsAddr].filter(isMatch);
 
             const allItems = [...allElevatorsData, ...combinedItems];
             const uniqueMap = new Map();
@@ -391,7 +399,7 @@
 
             allElevatorsData = filteredUniqueItems;
 
-            // ★ 더보기 버튼 노출 처리 (불러온 원본 데이터가 500개 미만이면 숨김)
+            // ★ 더보기 버튼 노출 처리
             if (hasMoreData) {
                 document.getElementById('loadMoreBtn').style.display = 'flex';
                 document.getElementById('loadMoreBtn').innerHTML = `<span>현재 ${currentPage}페이지 (결과 더보기)</span> ➕`;
