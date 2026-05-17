@@ -707,13 +707,14 @@
         
         clusterer.addMarkers(newOverlays);
         
-        if(renderList.length > 0 && currentPage === 1) {
-            map.setLevel(4); 
+       if(renderList.length > 0 && currentPage === 1) {
+            map.setLevel(5); // 250m 축척에 해당하는 레벨로 변경
             setTimeout(() => {
-                map.panTo(new kakao.maps.LatLng(renderList[0].lat + 0.0005, renderList[0].lng));
+                // 오프셋 없이 완벽한 정중앙 좌표로 이동
+                map.panTo(new kakao.maps.LatLng(renderList[0].lat, renderList[0].lng));
             }, 100);
         } 
-    }
+    } // renderData() 함수 끝
 
     function openBottomSheet(groupData) {
         document.getElementById('resBuildingName').innerText = groupData.buildingName;
