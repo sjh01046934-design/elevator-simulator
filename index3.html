@@ -396,6 +396,7 @@
     function closeDropdown() { document.getElementById('searchDropdown').style.display = 'none'; }
     document.addEventListener('click', function(event) { if (!document.getElementById('searchBar').contains(event.target)) closeDropdown(); });
 
+    // ★ 버그가 제거되고 10페이지까지 가장 안전하게 자동 탐색하는 로직
     async function executeSearch(isLoadMore = false) {
         const query = document.getElementById('searchInput').value.trim();
         const sido = document.getElementById('sidoSelector').value; 
@@ -414,8 +415,7 @@
             lastQuery = query;
             lastSido = sido;
             saveRecentSearch(sido, query);
-            document.getElementById('loadMoreBtn').style.display = 'none';
-
+            
             let words = lastQuery.trim().split(/\s+/);
             apiSearchWord = words[0];
             if (words.length > 1 && (apiSearchWord.includes(lastSido) || lastSido.includes(apiSearchWord.substring(0, 2)) || apiSearchWord === '세종특별자치시' || apiSearchWord === '세종시')) {
@@ -439,105 +439,127 @@
                     let parts = addrToUse.trim().split(/\s+/);
                     if (parts.length >= 2) {
                         apiSearchWord = parts[parts.length-2]; 
-                        searchCoreTokens = [parts[parts.length-2].toLowerCase(), parts[parts.length-1].toLowerCase()]; 
+                        searchCoreTokens = [parts[parts.length-2].toLowerCase(), parts[parts.length-1].toLowerCase()];
                     }
                 }
             }
-        } else {
-            currentPage++;
-            document.getElementById('searchInput').value = lastQuery;
-            document.getElementById('sidoSelector').value = lastSido;
         }
 
+        document.getElementById('loadMoreBtn').style.display = 'none';
+        
+        const MAX_ROWS = 500; 
+        const AUTO_SEARCH_LIMIT = 10; // ★ 자동 탐색 한도: 10페이지 설정
+        let targetEndPage = currentPage + AUTO_SEARCH_LIMIT - 1;
+        let found = false;
+        let hasMoreData = false;
+        let lastSearchedPage = currentPage;
+        
+        const uniqueMap = new Map(); // 찾은 승강기를 중복 없이 누적
+
         try {
-            document.getElementById('searchLoadingMsg').innerText = `⏳ 데이터를 수집 중입니다 (${currentPage}페이지)...`;
-            document.getElementById('searchLoadingMsg').style.display = 'block';
-            
-            const MAX_ROWS = 500; 
+            // ★ 1페이지부터 10페이지까지 한 페이지씩 정직하고 안전하게 확인
+            for (let p = currentPage; p <= targetEndPage; p++) {
+                document.getElementById('searchLoadingMsg').style.display = 'block';
+                document.getElementById('searchLoadingMsg').innerText = `⏳ 데이터를 계속 찾는 중입니다... (${p}페이지 탐색 중)`;
+                lastSearchedPage = p;
 
-            let fetches = [
-                fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${currentPage}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + `&buld_nm=` + encodeURIComponent(apiSearchWord) + `&_type=json`)).then(r => r.ok ? r.json() : {}),
-                fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${currentPage}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + `&address1=` + encodeURIComponent(apiSearchWord) + `&_type=json`)).then(r => r.ok ? r.json() : {})
-            ];
+                let combinedItems = [];
+                let currentBatchCount = 0; // 이 페이지에서 몇 개를 가져왔는지 확인
 
-            const results = await Promise.all(fetches);
+                // 1. 건물명 검색
+                const urlBuld = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${p}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + `&buld_nm=` + encodeURIComponent(apiSearchWord) + `&_type=json`;
+                try {
+                    let resBuld = await fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlBuld));
+                    if (resBuld.ok) {
+                        let data = await resBuld.json();
+                        let items = data.response?.body?.items?.item || [];
+                        if (!Array.isArray(items)) items = [items];
+                        combinedItems.push(...items);
+                        if (items.length >= MAX_ROWS) currentBatchCount += items.length;
+                    }
+                } catch(e) { console.error(e); }
 
-            let combinedItems = [];
-            let hasMoreData = false;
+                await new Promise(r => setTimeout(r, 200)); // 0.2초 휴식 (서버 보호)
 
-            results.forEach(res => {
-                let items = res.response?.body?.items?.item || [];
-                if (!Array.isArray(items)) items = [items];
-                
-                if (items.length >= MAX_ROWS) {
-                    hasMoreData = true;
+                // 2. 주소 검색
+                const urlAddr = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${p}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + `&address1=` + encodeURIComponent(apiSearchWord) + `&_type=json`;
+                try {
+                    let resAddr = await fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlAddr));
+                    if (resAddr.ok) {
+                        let data = await resAddr.json();
+                        let items = data.response?.body?.items?.item || [];
+                        if (!Array.isArray(items)) items = [items];
+                        combinedItems.push(...items);
+                        if (items.length >= MAX_ROWS) currentBatchCount += items.length;
+                    }
+                } catch(e) { console.error(e); }
+
+                // ★ 단순하고 강력한 남은 데이터 판별 로직
+                // 한 번이라도 500개가 꽉 차서 왔다면? 아직 서버에 볼 게 남았다는 뜻!
+                if (currentBatchCount > 0) hasMoreData = true;
+                else hasMoreData = false;
+
+                // 프론트엔드 필터링 (내가 원하는 진짜 데이터 찾기)
+                const isMatch = (item) => {
+                    const b = String(item.buldNm || item.buld_nm || "").toLowerCase();
+                    const a = (String(item.address1 || item.address || "") + " " + String(item.address2 || "")).toLowerCase();
+                    
+                    const userKeywords = lastQuery.toLowerCase().trim().split(/\s+/);
+                    const matchUser = userKeywords.every(kw => b.includes(kw) || a.includes(kw));
+
+                    const matchPlace = searchCoreTokens.length === 2 && 
+                                       a.includes(searchCoreTokens[0]) && a.includes(searchCoreTokens[1]);
+
+                    return matchUser || matchPlace;
+                };
+
+                let validItems = combinedItems.filter(isMatch);
+
+                validItems.forEach(item => {
+                    const elvNo = item.elevatorNo || item.elevator_no;
+                    if (elvNo && !uniqueMap.has(elvNo)) uniqueMap.set(elvNo, item);
+                });
+
+                let filteredUniqueItems = Array.from(uniqueMap.values()).filter(apiItem => {
+                    const type = String(apiItem.elvtrKindNm || apiItem.elvtrDivNm || "");
+                    if (type.includes('덤웨이터') || type === '화물용' || (type.includes('화물용') && !type.includes('승객'))) return false;
+                    return true;
+                });
+
+                // ★ 하나라도 찾았으면 화면에 띄우기 위해 루프를 멈춥니다!
+                if (filteredUniqueItems.length > 0) {
+                    allElevatorsData = filteredUniqueItems;
+                    found = true;
+                    break;
                 }
 
-                combinedItems.push(...items);
-            });
-
-            const isMatch = (item) => {
-                const b = String(item.buldNm || item.buld_nm || "").toLowerCase();
-                const a = (String(item.address1 || item.address || "") + " " + String(item.address2 || "")).toLowerCase();
+                // 못 찾았는데 서버가 준 데이터도 500개 미만이라면(바닥을 드러냈다면) 미련 없이 멈춥니다!
+                if (!hasMoreData) break;
                 
-                const userKeywords = lastQuery.toLowerCase().trim().split(/\s+/);
-                const matchUser = userKeywords.every(kw => b.includes(kw) || a.includes(kw));
-
-                const matchPlace = searchCoreTokens.length === 2 && 
-                                   a.includes(searchCoreTokens[0]) && a.includes(searchCoreTokens[1]);
-
-                return matchUser || matchPlace;
-            };
-
-            let validItems = combinedItems.filter(isMatch);
-
-            const uniqueMap = new Map();
-            allElevatorsData.forEach(item => {
-                const elvNo = item.elevatorNo || item.elevator_no;
-                if (elvNo) uniqueMap.set(elvNo, item);
-            });
-            validItems.forEach(item => {
-                const elvNo = item.elevatorNo || item.elevator_no;
-                if (elvNo && !uniqueMap.has(elvNo)) uniqueMap.set(elvNo, item);
-            });
-            let filteredUniqueItems = Array.from(uniqueMap.values());
+                await new Promise(r => setTimeout(r, 200)); // 다음 페이지로 넘어가기 전 0.2초 휴식
+            }
             
-            filteredUniqueItems = filteredUniqueItems.filter(apiItem => {
-                const type = String(apiItem.elvtrKindNm || apiItem.elvtrDivNm || "");
-                if (type.includes('덤웨이터') || type === '화물용' || (type.includes('화물용') && !type.includes('승객'))) return false;
-                return true;
-            });
-
+            currentPage = lastSearchedPage; // 마지막으로 찾은 페이지 번호 기록
             document.getElementById('searchLoadingMsg').style.display = 'none';
 
-            const loadMoreBtn = document.getElementById('loadMoreBtn');
-
-            if (filteredUniqueItems.length === 0) {
+            if (found) {
+                // 데이터를 찾았는데, 서버에 아직 더 데이터가 남아있다면 버튼 생성
                 if (hasMoreData) {
-                    loadMoreBtn.style.display = 'flex';
-                    loadMoreBtn.innerHTML = `<span>결과 없음. 다음 페이지 계속 찾기 (${currentPage + 1}p)</span> ➕`;
-                    if (!isLoadMore) {
-                        alert(`현재 ${currentPage}페이지에는 결과가 없습니다.\n데이터가 많아 숨겨져 있을 수 있으니 화면 하단의 '계속 찾기'를 눌러주세요.`);
-                    }
+                    document.getElementById('loadMoreBtn').style.display = 'flex';
+                    document.getElementById('loadMoreBtn').innerHTML = `<span>현재 ${currentPage}페이지 (결과 더보기)</span> ➕`;
+                }
+                buildGlobalGroups();
+            } else {
+                // 10페이지까지 다 돌았는데 못 찾았을 경우
+                if (hasMoreData) {
+                    document.getElementById('loadMoreBtn').style.display = 'flex';
+                    document.getElementById('loadMoreBtn').innerHTML = `<span>결과 없음. 계속 찾기 (${currentPage + 1}p)</span> ➕`;
+                    if (!isLoadMore) alert(`자동으로 ${currentPage}페이지까지 탐색했으나 결과가 없습니다.\n서버에 데이터가 더 있으니 화면 하단의 '계속 찾기'를 눌러주세요.`);
                 } else {
-                    loadMoreBtn.style.display = 'none';
                     if (isLoadMore) alert("더 이상 불러올 승강기 데이터가 없습니다.");
                     else alert(`[${lastSido}] 지역에 "${lastQuery}" (으)로 검색된 결과가 없습니다.`);
                 }
-                return;
             }
-
-            allElevatorsData = filteredUniqueItems;
-
-            if (hasMoreData) {
-                loadMoreBtn.style.display = 'flex';
-                loadMoreBtn.innerHTML = `<span>현재 ${currentPage}페이지 (결과 더보기)</span> ➕`;
-            } else {
-                loadMoreBtn.style.display = 'none';
-                if (isLoadMore) alert("모든 검색 결과를 불러왔습니다.");
-            }
-
-            buildGlobalGroups();
 
         } catch (error) {
             console.error(error);
@@ -670,7 +692,6 @@
             content.className = isAllStopped ? 'custom-marker stopped' : 'custom-marker';
             content.innerHTML = markerSvgIcon + `<span>${group.buildingName} (${group.elevators.length}대)</span>`;
             
-            // ★ 이벤트 방어막 추가: 마커 클릭 시 지도가 눌리지 않게 차단
             content.onclick = function(event) { 
                 if (event) event.stopPropagation();
                 openBottomSheet(group); 
@@ -680,7 +701,7 @@
                 position: new kakao.maps.LatLng(group.lat, group.lng),
                 content: content,
                 yAnchor: 1,
-                clickable: true // ★ 핵심: 지도 클릭 버블링 방지
+                clickable: true 
             }));
         });
         
