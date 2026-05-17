@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>승강기 설치유무검색 서비스 - 한국승강기안전공단</title>
+    <title>승강기 설치유무검색 - 한국승강기안전공단</title>
     
     <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=59f58919246c9ac3780496fc7e2c0d74&libraries=services,clusterer&autoload=false"></script>
     
@@ -46,7 +46,7 @@
         .fab-btn:active { background: #f0f0f0; }
 
         /* 더보기 버튼 */
-        .load-more-btn { position: absolute; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); background: #1e4e79; color: white; border: none; padding: 12px 24px; border-radius: 30px; font-size: 14px; font-weight: bold; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 9; cursor: pointer; display: none; align-items: center; gap: 6px; transition: background 0.2s; }
+        .load-more-btn { position: absolute; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); background: #1e4e79; color: white; border: none; padding: 12px 24px; border-radius: 30px; font-size: 14px; font-weight: bold; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 9; cursor: pointer; display: none; align-items: center; gap: 6px; transition: background 0.2s; white-space: nowrap; }
         .load-more-btn:active { background: #15395b; }
         
         /* 바텀 시트 (상세 정보) */
@@ -102,7 +102,7 @@
 
     <div class="search-bar-wrapper">
         <div class="page-header">
-            <h1>승강기 설치 유무 검색 서비스</h1>
+            <h1>승강기 설치유무검색</h1>
             <p>한국승강기안전공단 세종지사</p>
         </div>
         
@@ -128,8 +128,6 @@
             </select>
             <input type="text" id="searchInput" placeholder="주소 또는 건물명 검색" autocomplete="off" 
                    onfocus="handleInputFocus()" onclick="handleInputFocus()" oninput="handleInput()" onkeypress="handleKeyPress(event)">
-            
-            <!-- ★ 아이콘 버튼 원터치 최적화 -->
             <span class="icon-clear" onclick="fastClearSearch(event)" ontouchend="fastClearSearch(event)">X</span>
             <span class="icon-search" onclick="fastExecute(event)" ontouchend="fastExecute(event)">🔍</span>
             
@@ -184,7 +182,6 @@
     let globalGroups = []; 
     let geocodeCache = new Map(); 
 
-    // ★ 스크롤 감지를 위한 전역 변수 (터치 시 스크롤 중이면 터치를 무시하기 위함)
     let isTouchMoved = false;
     document.addEventListener('touchstart', function() { isTouchMoved = false; }, {passive: true});
     document.addEventListener('touchmove', function() { isTouchMoved = true; }, {passive: true});
@@ -251,36 +248,26 @@
         }
     }
 
-    // ★ 모바일 원터치 검색 실행 함수
     function fastSearch(event, sido, query) {
-        if (event && event.type === 'touchend' && isTouchMoved) return; // 스크롤 중이면 실행 방지
-        if (event) {
-            event.preventDefault(); // 기본 클릭 이벤트 중복 방지 및 키보드 이슈 해결
-            event.stopPropagation();
-        }
+        if (event && event.type === 'touchend' && isTouchMoved) return;
+        if (event) { event.preventDefault(); event.stopPropagation(); }
         
         document.getElementById('sidoSelector').value = sido;
         document.getElementById('searchInput').value = query;
-        document.getElementById('searchDropdown').style.display = 'none'; // 즉각적인 UI 피드백
-        document.getElementById('searchInput').blur(); // 가상 키보드 즉시 내림
-        
+        document.getElementById('searchDropdown').style.display = 'none'; 
+        document.getElementById('searchInput').blur(); 
         executeSearch(false);
     }
 
-    // ★ 모바일 원터치 삭제 함수
     function fastDelete(event, index) {
         if (event && event.type === 'touchend' && isTouchMoved) return;
-        if (event) {
-            event.preventDefault();
-            event.stopPropagation();
-        }
+        if (event) { event.preventDefault(); event.stopPropagation(); }
         let recents = JSON.parse(localStorage.getItem('elevator_recent_searches') || '[]'); 
         recents.splice(index, 1); 
         localStorage.setItem('elevator_recent_searches', JSON.stringify(recents)); 
         renderRecentSearches();
     }
 
-    // ★ 모바일 원터치 돋보기 및 지우기 버튼 함수
     function fastExecute(event) {
         if (event && event.type === 'touchend' && isTouchMoved) return;
         if (event) event.preventDefault();
@@ -297,7 +284,6 @@
     }
 
     let debounceTimer;
-
     function handleInputFocus() {
         const val = document.getElementById('searchInput').value.trim();
         if (!val) renderRecentSearches();
@@ -313,14 +299,24 @@
 
         debounceTimer = setTimeout(async () => {
             try {
-                const url = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=1&numOfRows=20&sido=${encodeURIComponent(sido)}&buld_nm=${encodeURIComponent(val)}&_type=json`;
+                // 자동완성 역시 첫 단어만 사용하여 범위를 넓힙니다.
+                const firstWord = val.split(/\s+/)[0];
+                const url = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=1&numOfRows=20&sido=${encodeURIComponent(sido)}&buld_nm=${encodeURIComponent(firstWord)}&_type=json`;
                 const proxyUrl = DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(url);
                 const res = await fetch(proxyUrl).then(r => r.ok ? r.json() : {});
                 
                 let items = res.response?.body?.items?.item || [];
                 if (!Array.isArray(items)) items = [items];
                 
-                const suggestions = [...new Set(items.map(i => i.buldNm || i.buld_nm).filter(Boolean))];
+                // 프론트엔드에서 전체 입력 단어로 필터링
+                const keywords = val.toLowerCase().trim().split(/\s+/);
+                const isMatch = (item) => {
+                    const b = String(item.buldNm || item.buld_nm || "").toLowerCase();
+                    const a = (String(item.address1 || item.address || "") + " " + String(item.address2 || "")).toLowerCase();
+                    return keywords.every(kw => b.includes(kw) || a.includes(kw));
+                };
+                
+                const suggestions = [...new Set(items.filter(isMatch).map(i => i.buldNm || i.buld_nm).filter(Boolean))];
                 renderAutocomplete(suggestions, val, sido);
             } catch (error) {
                 document.getElementById('searchDropdown').style.display = 'none';
@@ -336,7 +332,6 @@
         suggestions.forEach(s => {
             const div = document.createElement('div');
             div.className = 'dropdown-item';
-            // ★ 원터치 이벤트 적용
             div.innerHTML = `<div class="item-text" onclick="fastSearch(event, '${currentSido}', '${s}')" ontouchend="fastSearch(event, '${currentSido}', '${s}')">🔍 ${s.replace(keyword, `<span style="color:#1e4e79; font-weight:bold;">${keyword}</span>`)}</div>`;
             dropdown.appendChild(div);
         });
@@ -352,7 +347,6 @@
         recents.forEach((item, index) => {
             const div = document.createElement('div');
             div.className = 'dropdown-item';
-            // ★ 원터치 이벤트 적용
             div.innerHTML = `
                 <div class="item-text" onclick="fastSearch(event, '${item.sido}', '${item.query}')" ontouchend="fastSearch(event, '${item.sido}', '${item.query}')">
                     <span class="item-tag">${item.sido}</span> ${item.query}
@@ -404,9 +398,13 @@
         try {
             document.getElementById('searchLoadingMsg').style.display = 'block';
 
-            const MAX_ROWS = 500; 
-            const urlBuld = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${currentPage}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + '&buld_nm=' + encodeURIComponent(lastQuery) + '&_type=json';
-            const urlAddr = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${currentPage}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + '&address1=' + encodeURIComponent(lastQuery) + '&_type=json';
+            // ★ 해결 핵심 1: 사용자의 검색어 중 '첫 단어'만 API에 전송하여 폭넓게 데이터를 확보합니다. (최대 999개)
+            const keywords = lastQuery.toLowerCase().trim().split(/\s+/);
+            const firstWord = keywords[0];
+
+            const MAX_ROWS = 999; 
+            const urlBuld = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${currentPage}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + '&buld_nm=' + encodeURIComponent(firstWord) + '&_type=json';
+            const urlAddr = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${currentPage}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + '&address1=' + encodeURIComponent(firstWord) + '&_type=json';
 
             const proxyBuld = DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlBuld);
             const proxyAddr = DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlAddr);
@@ -421,20 +419,30 @@
             if (!Array.isArray(itemsBuld)) itemsBuld = [itemsBuld];
             if (!Array.isArray(itemsAddr)) itemsAddr = [itemsAddr];
 
-            const keywords = lastQuery.toLowerCase().trim().split(/\s+/);
+            // ★ 공공데이터 API 버그 방지 로직 (검색어가 없어서 랜덤 결과가 나오는 현상 차단)
+            const isValidApiResult = (item) => {
+                const b = String(item.buldNm || item.buld_nm || "").toLowerCase();
+                const a = (String(item.address1 || item.address || "") + " " + String(item.address2 || "")).toLowerCase();
+                return b.includes(firstWord) || a.includes(firstWord);
+            };
+
+            const validBuld = itemsBuld.filter(isValidApiResult);
+            const validAddr = itemsAddr.filter(isValidApiResult);
+
+            const isGenuineBuld = itemsBuld.length > 0 && (validBuld.length / itemsBuld.length) > 0.5;
+            const isGenuineAddr = itemsAddr.length > 0 && (validAddr.length / itemsAddr.length) > 0.5;
+
+            const hasMoreData = (itemsBuld.length >= MAX_ROWS && isGenuineBuld) || 
+                                (itemsAddr.length >= MAX_ROWS && isGenuineAddr);
+
+            // ★ 해결 핵심 2: 브라우저 단에서 address1과 address2를 합친 전체 주소에 모든 검색어가 포함되었는지 꼼꼼하게 필터링합니다.
             const isMatch = (item) => {
                 const b = String(item.buldNm || item.buld_nm || "").toLowerCase();
-                const a = String(item.address1 || item.address || "").toLowerCase();
+                const a = (String(item.address1 || item.address || "") + " " + String(item.address2 || "")).toLowerCase();
                 return keywords.every(kw => b.includes(kw) || a.includes(kw));
             };
 
-            const validBuld = itemsBuld.filter(isMatch);
-            const validAddr = itemsAddr.filter(isMatch);
-
-            const hasMoreData = (itemsBuld.length >= MAX_ROWS && validBuld.length > 0) || 
-                                (itemsAddr.length >= MAX_ROWS && validAddr.length > 0);
-
-            let combinedItems = [...validBuld, ...validAddr];
+            let combinedItems = [...validBuld, ...validAddr].filter(isMatch);
             const uniqueMap = new Map();
             
             allElevatorsData.forEach(item => {
@@ -455,11 +463,18 @@
                 return true;
             });
 
+            // ★ 페이지에 일치하는 결과가 없지만, API에는 추가 데이터가 더 있는 경우 사용자에게 알림
             if (filteredUniqueItems.length === 0) {
                 document.getElementById('searchLoadingMsg').style.display = 'none';
-                if (isLoadMore) alert("더 이상 불러올 승강기 데이터가 없습니다.");
-                else alert(`[${lastSido}] 지역에 "${lastQuery}" (으)로 검색된 결과가 없습니다.`);
-                document.getElementById('loadMoreBtn').style.display = 'none';
+                if (hasMoreData) {
+                    alert(`현재 페이지에서 일치하는 결과를 찾지 못했습니다.\n데이터가 많아 다음 페이지에 있을 수 있으니 '결과 더보기'를 눌러 탐색을 계속해주세요.`);
+                    document.getElementById('loadMoreBtn').style.display = 'flex';
+                    document.getElementById('loadMoreBtn').innerHTML = `<span>다음 페이지 탐색 (${currentPage + 1}p)</span> ➕`;
+                } else {
+                    if (isLoadMore) alert("더 이상 불러올 승강기 데이터가 없습니다.");
+                    else alert(`[${lastSido}] 지역에 "${lastQuery}" (으)로 검색된 결과가 없습니다.`);
+                    document.getElementById('loadMoreBtn').style.display = 'none';
+                }
                 return;
             }
 
@@ -486,7 +501,10 @@
 
         allElevatorsData.forEach(apiItem => {
             const buldNm = apiItem.buldNm || apiItem.buld_nm || "건물명 없음";
-            const address = apiItem.address1 || apiItem.address || "주소 없음";
+            // ★ 그룹화 과정에서도 address1과 address2를 확실하게 병합해 줍니다.
+            const addr1 = String(apiItem.address1 || apiItem.address || "");
+            const addr2 = String(apiItem.address2 || "");
+            const address = (addr1 + " " + addr2).trim() || "주소 없음";
             const key = `${buldNm}_${address}`;
 
             if (!groupedMap.has(key)) {
