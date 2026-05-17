@@ -89,7 +89,7 @@
     </div>
 
     <button id="loadMoreBtn" class="load-more-btn" onclick="executeSearch(true)">
-        <span>다음 페이지 로드</span> ➕
+        <span>결과 더보기 (다음 1,500건 탐색)</span> ➕
     </button>
 
     <div class="search-bar-wrapper">
@@ -126,7 +126,7 @@
             <div class="search-dropdown" id="searchDropdown"></div>
         </div>
 
-        <div id="searchLoadingMsg">⏳ 실시간 데이터 검색 중입니다...</div>
+        <div id="searchLoadingMsg">⏳ 광역 데이터를 딥-서치 중입니다...</div>
     </div>
 
     <div class="bottom-sheet" id="bottomSheet">
@@ -289,9 +289,8 @@
 
         debounceTimer = setTimeout(async () => {
             try {
-                // 사용자가 입력한 문자열에 강제로 띄어쓰기 적용 후 검색
-                const spacedQuery = val.replace(/([가-힣a-zA-Z])(\d+)/g, '$1 $2').replace(/\s+/g, ' ').trim();
-                const url = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=1&numOfRows=20&sido=${encodeURIComponent(sido)}&address1=${encodeURIComponent(spacedQuery)}&_type=json`;
+                const firstWord = val.split(/\s+/)[0];
+                const url = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=1&numOfRows=20&sido=${encodeURIComponent(sido)}&buld_nm=${encodeURIComponent(firstWord)}&_type=json`;
                 const proxyUrl = DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(url);
                 const res = await fetch(proxyUrl).then(r => r.ok ? r.json() : {});
                 
@@ -359,7 +358,7 @@
     function closeDropdown() { document.getElementById('searchDropdown').style.display = 'none'; }
     document.addEventListener('click', function(event) { if (!document.getElementById('searchBar').contains(event.target)) closeDropdown(); });
 
-    // ★ 메인 검색 실행 (사용자님의 아이디어: address1 풀네임 타격 로직)
+    // ★ 메인 검색 실행 (딥-서치 하이브리드 로직 적용)
     async function executeSearch(isLoadMore = false) {
         const query = document.getElementById('searchInput').value.trim();
         const sido = document.getElementById('sidoSelector').value; 
@@ -386,55 +385,72 @@
         }
 
         try {
-            document.getElementById('searchLoadingMsg').innerText = "⏳ 실시간 데이터 검색 중입니다...";
+            document.getElementById('searchLoadingMsg').innerText = "⏳ 광역 데이터를 딥-서치 중입니다...";
             document.getElementById('searchLoadingMsg').style.display = 'block';
             
             const MAX_ROWS = 500; 
-            let fetches = [];
-            let urlsToFetch = new Set();
 
-            const addFetch = (params) => {
-                const url = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${currentPage}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + params + '&_type=json';
-                if (!urlsToFetch.has(url)) {
-                    urlsToFetch.add(url);
-                    fetches.push(fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(url)).then(res => res.ok ? res.json() : {}));
-                }
-            };
-
-            // 1. 원본 쿼리 그대로 검색 (건물명 & 주소)
-            addFetch(`&buld_nm=${encodeURIComponent(lastQuery)}`);
-            addFetch(`&address1=${encodeURIComponent(lastQuery)}`);
-
-            // 2. ★ 핵심: 문자와 숫자 사이에 자동으로 띄어쓰기를 넣어서 보정된 문자열로 address1 탐색!
-            const spacedQuery = lastQuery.replace(/([가-힣a-zA-Z])(\d+)/g, '$1 $2').replace(/\s+/g, ' ').trim();
-            if (spacedQuery !== lastQuery) {
-                addFetch(`&buld_nm=${encodeURIComponent(spacedQuery)}`);
-                addFetch(`&address1=${encodeURIComponent(spacedQuery)}`);
+            // 사용자가 입력한 검색어 중 핵심 첫 단어만 추출 (예: "한누리대로 169" -> "한누리대로")
+            // 단, "세종", "서울" 등 지역명이 포함되어 있으면 두 번째 단어를 핵심 검색어로 추출
+            let words = lastQuery.trim().split(/\s+/);
+            let firstWord = words[0];
+            if (words.length > 1 && (firstWord.includes(lastSido) || lastSido.includes(firstWord.substring(0, 2)) || firstWord === '세종특별자치시' || firstWord === '세종시')) {
+                firstWord = words[1];
             }
 
-            const results = await Promise.all(fetches);
+            // 한 번 클릭에 3개 페이지(최대 1,500개)를 동시에 병렬로 뒤져서 찾아냅니다.
+            const startPage = (currentPage - 1) * 3 + 1; 
+            const pagesToFetch = [startPage, startPage + 1, startPage + 2];
 
-            // 프론트엔드 교차 검증: 서버가 던져준 데이터가 진짜 내가 친 단어를 포함하고 있는지 검사
+            let fetches = [];
+            pagesToFetch.forEach(p => {
+                // 1. 혹시 모를 건물명 정확도 매칭을 위한 검색
+                const urlBuld = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${p}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + `&buld_nm=` + encodeURIComponent(lastQuery) + `&_type=json`;
+                fetches.push({ type: 'buld', page: p, req: fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlBuld)).then(res => res.ok ? res.json() : {}) });
+                
+                // 2. 핵심 단어("한누리대로")로 3페이지를 싹쓸이 탐색
+                const urlAddr = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${p}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + `&address1=` + encodeURIComponent(firstWord) + `&_type=json`;
+                fetches.push({ type: 'addr', page: p, req: fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlAddr)).then(res => res.ok ? res.json() : {}) });
+            });
+
+            const results = await Promise.all(fetches.map(f => f.req));
+
             const searchTarget = lastQuery.replace(/\s+/g, '').toLowerCase();
+            const firstWordTarget = firstWord.replace(/\s+/g, '').toLowerCase();
+
+            // 사용자가 입력한 "전체 텍스트(예: 한누리대로169)"가 모두 들어있는지 깐깐하게 검증하는 필터
             const isMatch = (item) => {
                 const b = String(item.buldNm || item.buld_nm || "").replace(/\s+/g, '').toLowerCase();
                 const a = (String(item.address1 || item.address || "") + String(item.address2 || "")).replace(/\s+/g, '').toLowerCase();
                 return b.includes(searchTarget) || a.includes(searchTarget);
             };
 
+            // 서버 버그 방지용 필터 (가져온 데이터가 정말 "한누리대로" 관련 데이터가 맞는지 검증)
+            const isFirstWordMatch = (item) => {
+                const b = String(item.buldNm || item.buld_nm || "").replace(/\s+/g, '').toLowerCase();
+                const a = (String(item.address1 || item.address || "") + String(item.address2 || "")).replace(/\s+/g, '').toLowerCase();
+                return b.includes(firstWordTarget) || a.includes(firstWordTarget);
+            };
+
             let combinedItems = [];
             let hasMoreData = false;
 
-            results.forEach(res => {
+            results.forEach((res, index) => {
                 let items = res.response?.body?.items?.item || [];
                 if (!Array.isArray(items)) items = [items];
                 
+                // 완벽히 일치하는 결과만 화면에 표시할 데이터로 추가
                 let validItems = items.filter(isMatch);
                 combinedItems.push(...validItems);
                 
-                // ★ 더보기 버그 방지 로직: 가져온 500개 중 실제로 90% 이상이 검색어와 일치할 때만 다음 페이지가 있다고 판단!
-                if (items.length >= MAX_ROWS && validItems.length >= (MAX_ROWS * 0.9)) {
-                    hasMoreData = true;
+                // ★ 더보기 버그 철통 방어: 우리가 검색한 최고 페이지(예: 3페이지)의 결과물을 분석합니다.
+                const fetchInfo = fetches[index];
+                if (fetchInfo.page === pagesToFetch[pagesToFetch.length - 1]) {
+                    let firstWordValidItems = items.filter(isFirstWordMatch);
+                    // 만약 3페이지 결과가 500개 꽉 차 있고, 그 500개가 랜덤이 아닌 진짜 "한누리대로" 데이터라면? -> "4페이지에도 데이터가 더 있다!" 라고 판단.
+                    if (items.length >= MAX_ROWS && firstWordValidItems.length > (MAX_ROWS * 0.5)) {
+                        hasMoreData = true;
+                    }
                 }
             });
 
@@ -457,12 +473,13 @@
                 return true;
             });
 
+            // 데이터가 없을 때의 똑똑한 안내 메시지 처리
             if (filteredUniqueItems.length === 0) {
                 document.getElementById('searchLoadingMsg').style.display = 'none';
                 if (hasMoreData) {
-                    alert(`현재 페이지에는 승객용 승강기가 없습니다.\n'다음 페이지 로드' 버튼을 눌러 탐색을 계속해주세요.`);
+                    alert(`현재 데이터 1,500건 내에서 일치하는 건물을 찾지 못했습니다.\n'결과 더보기' 버튼을 눌러 다음 구역을 탐색해주세요.`);
                     document.getElementById('loadMoreBtn').style.display = 'flex';
-                    document.getElementById('loadMoreBtn').innerHTML = `<span>다음 페이지 로드 (${currentPage + 1}p)</span> ➕`;
+                    document.getElementById('loadMoreBtn').innerHTML = `<span>결과 더보기 (다음 1,500건 탐색)</span> ➕`;
                 } else {
                     if (isLoadMore) alert("더 이상 불러올 승강기 데이터가 없습니다.");
                     else alert(`[${lastSido}] 지역에 "${lastQuery}" (으)로 검색된 결과가 없습니다.`);
@@ -475,7 +492,7 @@
 
             if (hasMoreData) {
                 document.getElementById('loadMoreBtn').style.display = 'flex';
-                document.getElementById('loadMoreBtn').innerHTML = `<span>다음 페이지 로드 (${currentPage + 1}p)</span> ➕`;
+                document.getElementById('loadMoreBtn').innerHTML = `<span>결과 더보기 (다음 1,500건 탐색)</span> ➕`;
             } else {
                 document.getElementById('loadMoreBtn').style.display = 'none';
                 if (isLoadMore) alert("모든 검색 결과를 불러왔습니다.");
