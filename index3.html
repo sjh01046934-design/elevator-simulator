@@ -126,7 +126,7 @@
             <div class="search-dropdown" id="searchDropdown"></div>
         </div>
 
-        <div id="searchLoadingMsg">⏳ 데이터를 검색 중입니다...</div>
+        <div id="searchLoadingMsg">⏳ API 서버에서 데이터를 탐색 중입니다...</div>
     </div>
 
     <div class="bottom-sheet" id="bottomSheet">
@@ -289,7 +289,6 @@
 
         debounceTimer = setTimeout(async () => {
             try {
-                // 첫 단어만 추출
                 const firstWord = val.split(/\s+/)[0];
                 const url = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=1&numOfRows=20&sido=${encodeURIComponent(sido)}&buld_nm=${encodeURIComponent(firstWord)}&_type=json`;
                 const proxyUrl = DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(url);
@@ -359,7 +358,6 @@
     function closeDropdown() { document.getElementById('searchDropdown').style.display = 'none'; }
     document.addEventListener('click', function(event) { if (!document.getElementById('searchBar').contains(event.target)) closeDropdown(); });
 
-    // ★ 가장 직관적이고 완벽한 검색 & 페이지네이션 로직
     async function executeSearch(isLoadMore = false) {
         const query = document.getElementById('searchInput').value.trim();
         const sido = document.getElementById('sidoSelector').value; 
@@ -386,33 +384,17 @@
         }
 
         try {
-            document.getElementById('searchLoadingMsg').innerText = "⏳ 데이터를 검색 중입니다...";
+            document.getElementById('searchLoadingMsg').innerText = `⏳ API 서버에서 데이터를 탐색 중입니다 (${currentPage}페이지)...`;
             document.getElementById('searchLoadingMsg').style.display = 'block';
             
             const MAX_ROWS = 500; 
-            let fetches = [];
-            let urlsToFetch = new Set();
+            const keywords = lastQuery.trim().split(/\s+/);
+            const firstWord = keywords[0];
 
-            // API 호출을 간편하게 해주는 헬퍼 함수
-            const addFetch = (params) => {
-                const url = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${currentPage}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + params + '&_type=json';
-                if (!urlsToFetch.has(url)) {
-                    urlsToFetch.add(url);
-                    fetches.push(fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(url)).then(res => res.ok ? res.json() : {}));
-                }
-            };
-
-            // 1. 기본 검색 (건물명, 주소 전체)
-            addFetch(`&buld_nm=${encodeURIComponent(lastQuery)}`);
-            addFetch(`&address1=${encodeURIComponent(lastQuery)}`);
-
-            // 2. ★ 건물주소 한 번에 찾기 로직: 띄어쓰기가 있다면 앞부분은 도로명(address1), 뒷부분은 건물번호(address2)로 쪼개서 추가 검색!
-            const parts = lastQuery.trim().split(/\s+/);
-            if (parts.length >= 2) {
-                const addr1 = parts.slice(0, -1).join(" "); // 예: "한누리대로"
-                const addr2 = parts[parts.length - 1];      // 예: "169"
-                addFetch(`&address1=${encodeURIComponent(addr1)}&address2=${encodeURIComponent(addr2)}`);
-            }
+            let fetches = [
+                fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${currentPage}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + `&buld_nm=` + encodeURIComponent(lastQuery) + `&_type=json`)).then(res => res.ok ? res.json() : {}),
+                fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${currentPage}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + `&address1=` + encodeURIComponent(firstWord) + `&_type=json`)).then(res => res.ok ? res.json() : {})
+            ];
 
             const results = await Promise.all(fetches);
 
@@ -422,25 +404,24 @@
             results.forEach(res => {
                 let items = res.response?.body?.items?.item || [];
                 if (!Array.isArray(items)) items = [items];
-                combinedItems.push(...items);
-
-                // ★ 사용자님 요청 완벽 반영: 어떤 검색이든 서버에서 500개를 꽉 채워 줬다면 무조건 다음 페이지가 있다고 판단!
-                if (items.length >= MAX_ROWS) {
+                
+                let totalCount = res.response?.body?.totalCount || 0;
+                
+                if (totalCount > currentPage * MAX_ROWS || items.length >= MAX_ROWS) {
                     hasMoreData = true;
                 }
+
+                combinedItems.push(...items);
             });
 
-            // 화면에 뿌리기 전, 내가 입력한 검색어가 포함된 진짜 데이터만 걸러냄
-            const keywords = lastQuery.toLowerCase().trim().split(/\s+/);
             const isMatch = (item) => {
                 const b = String(item.buldNm || item.buld_nm || "").toLowerCase();
                 const a = (String(item.address1 || item.address || "") + " " + String(item.address2 || "")).toLowerCase();
-                return keywords.every(kw => b.includes(kw) || a.includes(kw));
+                return keywords.every(kw => b.includes(kw.toLowerCase()) || a.includes(kw.toLowerCase()));
             };
 
             let validItems = combinedItems.filter(isMatch);
 
-            // 중복 데이터 제거
             const uniqueMap = new Map();
             allElevatorsData.forEach(item => {
                 const elvNo = item.elevatorNo || item.elevator_no;
@@ -452,30 +433,29 @@
             });
             let filteredUniqueItems = Array.from(uniqueMap.values());
             
-            // 덤웨이터 및 순수 화물용 제외 (승객용만 화면에 표시)
             filteredUniqueItems = filteredUniqueItems.filter(apiItem => {
                 const type = String(apiItem.elvtrKindNm || apiItem.elvtrDivNm || "");
                 if (type.includes('덤웨이터') || type === '화물용' || (type.includes('화물용') && !type.includes('승객'))) return false;
                 return true;
             });
 
+            document.getElementById('searchLoadingMsg').style.display = 'none';
+
             if (filteredUniqueItems.length === 0) {
-                document.getElementById('searchLoadingMsg').style.display = 'none';
                 if (hasMoreData) {
-                    alert(`현재 페이지에는 일치하는 결과가 없습니다.\n'다음 페이지 로드' 버튼을 눌러 탐색을 계속해주세요.`);
                     document.getElementById('loadMoreBtn').style.display = 'flex';
                     document.getElementById('loadMoreBtn').innerHTML = `<span>다음 페이지 로드 (${currentPage + 1}p)</span> ➕`;
+                    alert(`현재 ${currentPage}페이지(500건) 내에는 '${lastQuery}' 결과가 없습니다.\n데이터가 더 있으니 '다음 페이지 로드' 버튼을 눌러 계속 찾아주세요.`);
                 } else {
-                    if (isLoadMore) alert("더 이상 불러올 승강기 데이터가 없습니다.");
-                    else alert(`[${lastSido}] 지역에 "${lastQuery}" (으)로 검색된 승객용 승강기가 없습니다.`);
                     document.getElementById('loadMoreBtn').style.display = 'none';
+                    if (isLoadMore) alert("더 이상 불러올 승강기 데이터가 없습니다.");
+                    else alert(`[${lastSido}] 지역에 "${lastQuery}" (으)로 검색된 결과가 없습니다.`);
                 }
                 return;
             }
 
             allElevatorsData = filteredUniqueItems;
 
-            // 더보기 버튼 노출 여부
             if (hasMoreData) {
                 document.getElementById('loadMoreBtn').style.display = 'flex';
                 document.getElementById('loadMoreBtn').innerHTML = `<span>다음 페이지 로드 (${currentPage + 1}p)</span> ➕`;
@@ -577,7 +557,6 @@
                 });
             });
         })).then(() => {
-            document.getElementById('searchLoadingMsg').style.display = 'none';
             renderData();
         });
     }
@@ -585,21 +564,23 @@
     function renderData() {
         let renderList = [...globalGroups];
 
-        const queryLower = lastQuery.replace(/\s+/g, '').toLowerCase();
+        const keywords = lastQuery.trim().split(/\s+/);
         
         const getScore = (g) => {
-            const name = g.buildingName.replace(/\s+/g, '').toLowerCase();
-            const addr = g.address.replace(/\s+/g, '').toLowerCase();
+            const name = g.buildingName.toLowerCase();
+            const addr = g.address.toLowerCase();
             let score = 0;
             
-            if (name === queryLower) score += 1000;
-            else if (name.startsWith(queryLower)) score += 500;
-            else if (name.includes(queryLower)) score += 100;
-            
-            if (addr === queryLower) score += 1000;
-            else if (addr.startsWith(queryLower)) score += 500;
-            else if (addr.includes(queryLower)) score += 100;
-            
+            keywords.forEach(kw => {
+                const lowerKw = kw.toLowerCase();
+                if (name === lowerKw) score += 1000;
+                else if (name.startsWith(lowerKw)) score += 500;
+                else if (name.includes(lowerKw)) score += 100;
+                
+                if (addr === lowerKw) score += 1000;
+                else if (addr.startsWith(lowerKw)) score += 500;
+                else if (addr.includes(lowerKw)) score += 100;
+            });
             score -= name.length;
             return score;
         };
