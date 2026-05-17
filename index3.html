@@ -289,7 +289,6 @@
 
         debounceTimer = setTimeout(async () => {
             try {
-                // 자동완성: 서버 부하를 막기 위해 첫 단어만 호출
                 const firstWord = val.split(/\s+/)[0];
                 const url = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=1&numOfRows=20&sido=${encodeURIComponent(sido)}&buld_nm=${encodeURIComponent(firstWord)}&_type=json`;
                 const proxyUrl = DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(url);
@@ -359,8 +358,7 @@
     function closeDropdown() { document.getElementById('searchDropdown').style.display = 'none'; }
     document.addEventListener('click', function(event) { if (!document.getElementById('searchBar').contains(event.target)) closeDropdown(); });
 
-
-    // ★ 메인 검색 실행 (다중 쿼리 탐색 시스템)
+    // ★ 메인 검색 실행 (스마트 하이브리드 로직 + 주소/지번 완벽 분리)
     async function executeSearch(isLoadMore = false) {
         const query = document.getElementById('searchInput').value.trim();
         const sido = document.getElementById('sidoSelector').value; 
@@ -387,67 +385,66 @@
         }
 
         try {
-            document.getElementById('searchLoadingMsg').innerText = "⏳ 실시간 데이터 검색 중입니다...";
             document.getElementById('searchLoadingMsg').style.display = 'block';
-            
             const MAX_ROWS = 500; 
+            
             let fetches = [];
+            let urlsToFetch = new Set(); // 중복 API 요청 방지
 
-            // 1. 띄어쓰기가 있는 경우 (예: 한누리대로 169)
+            const addFetch = (urlParams) => {
+                const url = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${currentPage}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + urlParams + '&_type=json';
+                if (!urlsToFetch.has(url)) {
+                    urlsToFetch.add(url);
+                    fetches.push(fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(url)).then(res => res.ok ? res.json() : {}));
+                }
+            };
+
+            // 1. 원본 검색어 그대로 건물명/주소 검색
+            addFetch(`&buld_nm=${encodeURIComponent(lastQuery)}`);
+            addFetch(`&address1=${encodeURIComponent(lastQuery)}`);
+
+            // 2. 띄어쓰기 정규화 (예: 한누리대로169 -> 한누리대로 169)
             const spacedQuery = lastQuery.replace(/([가-힣a-zA-Z])(\d+)/g, '$1 $2').replace(/\s+/g, ' ').trim();
-            // 2. 띄어쓰기가 없는 경우 (예: 한누리대로169)
-            const noSpaceQuery = lastQuery.replace(/\s+/g, '');
+            if (spacedQuery !== lastQuery) {
+                addFetch(`&buld_nm=${encodeURIComponent(spacedQuery)}`);
+                addFetch(`&address1=${encodeURIComponent(spacedQuery)}`);
+            }
 
-            const queriesToTry = [...new Set([spacedQuery, noSpaceQuery])];
+            // 3. ★ 핵심 로직: 도로명(동)과 건물번호(지번) 분리 검색 ★
+            // 검색어가 문자로 시작하고 숫자로 끝나는 경우 (예: 한누리대로 169, 보람동 123-1)
+            const splitMatch = lastQuery.replace(/\s+/g, '').match(/^(.*?[가-힣a-zA-Z])(\d+(?:-\d+)?)$/);
+            if (splitMatch) {
+                const addr1 = splitMatch[1]; // 한누리대로
+                const addr2 = splitMatch[2]; // 169
+                // 분리된 값으로 address1과 address2를 동시 타격! (서버 과부하 없이 정확한 결과만 도출)
+                addFetch(`&address1=${encodeURIComponent(addr1)}&address2=${encodeURIComponent(addr2)}`);
+            }
 
-            queriesToTry.forEach(q => {
-                if (!q) return;
-                // 건물명 검색
-                const urlBuld = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${currentPage}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + '&buld_nm=' + encodeURIComponent(q) + '&_type=json';
-                fetches.push({ type: 'buld', q: q, req: fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlBuld)).then(res => res.ok ? res.json() : {}) });
-                
-                // 주소 검색
-                const urlAddr = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${currentPage}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + '&address1=' + encodeURIComponent(q) + '&_type=json';
-                fetches.push({ type: 'addr', q: q, req: fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlAddr)).then(res => res.ok ? res.json() : {}) });
-            });
+            const results = await Promise.all(fetches);
 
-            const results = await Promise.all(fetches.map(f => f.req));
+            // 띄어쓰기 무시 필터링 준비
+            const searchTarget = lastQuery.replace(/\s+/g, '').toLowerCase();
+            const isMatch = (item) => {
+                const b = String(item.buldNm || item.buld_nm || "").replace(/\s+/g, '').toLowerCase();
+                const a = (String(item.address1 || item.address || "") + String(item.address2 || "")).replace(/\s+/g, '').toLowerCase();
+                return b.includes(searchTarget) || a.includes(searchTarget);
+            };
 
             let combinedItems = [];
             let hasMoreData = false;
 
-            results.forEach((res, index) => {
+            results.forEach(res => {
                 let items = res.response?.body?.items?.item || [];
                 if (!Array.isArray(items)) items = [items];
-
-                const fetchInfo = fetches[index];
-                const searchKeyword = fetchInfo.q.replace(/\s+/g, '').toLowerCase();
-
-                // ★ 해당 응답값이 실제 검색어와 관련이 있는지 '진위 여부'를 판별합니다.
-                let isRelevant = false;
-                if (fetchInfo.type === 'buld') {
-                    isRelevant = items.some(item => String(item.buldNm || item.buld_nm).replace(/\s+/g, '').toLowerCase().includes(searchKeyword));
-                } else {
-                    isRelevant = items.some(item => (String(item.address1 || item.address) + String(item.address2 || "")).replace(/\s+/g, '').toLowerCase().includes(searchKeyword));
-                }
-
-                // 관련 있는 진짜 데이터가 500개를 꽉 채웠을 때만 다음 페이지가 있다고 판단합니다! (버그 완벽 차단)
-                if (items.length >= MAX_ROWS && isRelevant) {
+                
+                let validItems = items.filter(isMatch);
+                combinedItems.push(...validItems);
+                
+                // 가져온 데이터가 500개를 꽉 채웠고, 그 중 유효한 데이터가 존재하면 다음 페이지가 있음
+                if (items.length >= MAX_ROWS && validItems.length > 0) {
                     hasMoreData = true;
                 }
-
-                combinedItems.push(...items);
             });
-
-            // 철저한 브라우저 단 필터링
-            const targetNoSpace = lastQuery.replace(/\s+/g, '').toLowerCase();
-            const isMatch = (item) => {
-                const b = String(item.buldNm || item.buld_nm || "").replace(/\s+/g, '').toLowerCase();
-                const a = (String(item.address1 || item.address || "") + String(item.address2 || "")).replace(/\s+/g, '').toLowerCase();
-                return b.includes(targetNoSpace) || a.includes(targetNoSpace);
-            };
-
-            let validItems = combinedItems.filter(isMatch);
 
             // 중복 제거
             const uniqueMap = new Map();
@@ -455,7 +452,7 @@
                 const elvNo = item.elevatorNo || item.elevator_no;
                 if (elvNo) uniqueMap.set(elvNo, item);
             });
-            validItems.forEach(item => {
+            combinedItems.forEach(item => {
                 const elvNo = item.elevatorNo || item.elevator_no;
                 if (elvNo && !uniqueMap.has(elvNo)) uniqueMap.set(elvNo, item);
             });
@@ -470,15 +467,9 @@
 
             if (filteredUniqueItems.length === 0) {
                 document.getElementById('searchLoadingMsg').style.display = 'none';
-                if (hasMoreData) {
-                    alert(`현재 페이지에는 승객용 승강기가 없습니다.\n'다음 페이지 로드' 버튼을 눌러 탐색을 계속해주세요.`);
-                    document.getElementById('loadMoreBtn').style.display = 'flex';
-                    document.getElementById('loadMoreBtn').innerHTML = `<span>다음 페이지 로드 (${currentPage + 1}p)</span> ➕`;
-                } else {
-                    if (isLoadMore) alert("더 이상 불러올 승강기 데이터가 없습니다.");
-                    else alert(`[${lastSido}] 지역에 "${lastQuery}" (으)로 검색된 결과가 없습니다.`);
-                    document.getElementById('loadMoreBtn').style.display = 'none';
-                }
+                if (isLoadMore) alert("더 이상 불러올 승강기 데이터가 없습니다.");
+                else alert(`[${lastSido}] 지역에 "${lastQuery}" (으)로 검색된 결과가 없습니다.`);
+                document.getElementById('loadMoreBtn').style.display = 'none';
                 return;
             }
 
