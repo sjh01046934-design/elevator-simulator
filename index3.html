@@ -149,7 +149,7 @@
     let markers = [];
     let geocoder; 
     
-    // 글로벌 상태 관리 (더보기 기능용)
+    // 글로벌 상태 관리
     let currentPage = 1;
     let lastQuery = '';
     let lastSido = '';
@@ -161,7 +161,6 @@
 
     function initMap() {
         const container = document.getElementById('map');
-        // ★ 대한민국 전체 지도가 보이도록 축척(level: 13) 및 중심 좌표 변경
         const options = { center: new kakao.maps.LatLng(36.1, 127.7), level: 13 };
         map = new kakao.maps.Map(container, options);
         geocoder = new kakao.maps.services.Geocoder(); 
@@ -354,22 +353,18 @@
 
             const loweredQuery = lastQuery.toLowerCase();
             
-            // 검색어와 일치하는지 확인하는 판별 함수
             const isMatch = (item) => {
                 const buldNm = String(item.buldNm || item.buld_nm || "").toLowerCase();
                 const address = String(item.address1 || item.address || "").toLowerCase();
                 return buldNm.includes(loweredQuery) || address.includes(loweredQuery);
             };
 
-            // API 각각의 응답에서 '진짜 유효한' 데이터가 몇 개인지 측정
             const validBuldCount = itemsBuld.filter(isMatch).length;
             const validAddrCount = itemsAddr.filter(isMatch).length;
 
-            // ★ 수정된 핵심 로직: 유효한 검색 결과가 1개라도 포함된 상태에서 500개를 꽉 채웠을 때만 더보기 활성화
             const hasMoreData = (validBuldCount > 0 && itemsBuld.length >= MAX_ROWS) || 
                                 (validAddrCount > 0 && itemsAddr.length >= MAX_ROWS);
 
-            // 두 데이터를 합친 후 유효한 데이터만 남김
             let combinedItems = [...itemsBuld, ...itemsAddr].filter(isMatch);
 
             const allItems = [...allElevatorsData, ...combinedItems];
@@ -399,7 +394,6 @@
 
             allElevatorsData = filteredUniqueItems;
 
-            // ★ 더보기 버튼 노출 처리
             if (hasMoreData) {
                 document.getElementById('loadMoreBtn').style.display = 'flex';
                 document.getElementById('loadMoreBtn').innerHTML = `<span>현재 ${currentPage}페이지 (결과 더보기)</span> ➕`;
@@ -506,6 +500,33 @@
                 });
             });
         })).then(finalData => {
+            // ★ 검색어와 가장 일치하는 결과가 배열의 맨 앞으로 오도록 가중치 정렬 적용
+            const queryLower = lastQuery.toLowerCase();
+            
+            const getScore = (group) => {
+                const name = group.buildingName.toLowerCase();
+                const addr = group.address.toLowerCase();
+                let score = 0;
+                
+                // 건물명 매칭 점수
+                if (name === queryLower) score += 1000;
+                else if (name.startsWith(queryLower)) score += 500;
+                else if (name.includes(queryLower)) score += 100;
+                
+                // 주소 매칭 점수
+                if (addr === queryLower) score += 1000;
+                else if (addr.startsWith(queryLower)) score += 500;
+                else if (addr.includes(queryLower)) score += 100;
+                
+                // 문자열 길이가 짧을수록 검색어에 더 근접한 결과로 판단 (감점 방식)
+                score -= name.length;
+                
+                return score;
+            };
+
+            // 점수가 높은 순으로 내림차순 정렬
+            finalData.sort((a, b) => getScore(b) - getScore(a));
+
             renderMarkers(finalData);
         });
     }
@@ -533,6 +554,7 @@
             markers.push(customOverlay);
         });
         
+        // 정렬된 결과의 첫 번째 요소를 지도의 중심으로 설정
         if(dataArray.length > 0 && currentPage === 1) {
             map.setCenter(new kakao.maps.LatLng(dataArray[0].lat, dataArray[0].lng));
             map.setLevel(4); 
