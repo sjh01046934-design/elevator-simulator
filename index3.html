@@ -52,7 +52,7 @@
         
         .elevator-icon-box { width: 46px; height: 46px; display: flex; justify-content: center; align-items: center; margin-right: 12px; background: #f4f6f8; border-radius: 8px; border: 1px solid #e0e0e0; overflow: hidden; flex-shrink: 0;}
         
-        .status-title { font-size: 16px; font-weight: bold; color: #333; }
+        .status-title { font-size: 16px; font-weight: bold; color: #333; line-height: 1.3;}
         .address-text { font-size: 13px; color: #666; margin-top: 2px; }
 
         .action-links { display: flex; gap: 8px; margin-bottom: 8px; flex-shrink: 0; }
@@ -462,7 +462,6 @@
                 address1 = address;
             }
 
-            // 도로명(address1)으로 1페이지 호출해서 전체 개수 파악
             const baseUrl = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&numOfRows=500&sido=${encodeURIComponent(sido)}&address1=${encodeURIComponent(address1)}&_type=json`;
 
             let resFirst = await fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(baseUrl + `&pageNo=1`), { signal });
@@ -477,9 +476,8 @@
             combinedItems.push(...items);
 
             let maxPages = Math.ceil(totalCount / 500);
-            maxPages = Math.min(maxPages, 30); // 1만 5천 건 한도
+            maxPages = Math.min(maxPages, 30); 
 
-            // ★ 누락 방지: 2페이지 이상일 경우 전부 가져오기 (3개씩 병렬 배치 호출로 속도 확보)
             if (maxPages > 1) {
                 showLoadingMsg(`⏳ [${placeName}] 상세 데이터 스캔 중... (최대 ${maxPages}p)`);
                 let fetchPromises = [];
@@ -490,7 +488,7 @@
                     let batchRequests = batch.map(p => 
                         fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(baseUrl + `&pageNo=${p}`), { signal })
                         .then(r => r.ok ? r.json() : null)
-                        .catch(e => { if(e.name !== 'AbortError') console.error(e); return null; })
+                        .catch(e => null)
                     );
                     
                     let results = await Promise.all(batchRequests);
@@ -501,23 +499,34 @@
                             combinedItems.push(...itms);
                         }
                     });
-                    await new Promise(r => setTimeout(r, 200)); // 429 방어 휴식
+                    await new Promise(r => setTimeout(r, 200)); 
                 }
             }
             
-            // ★ 정밀 필터링: 카카오 번지수(411)가 공공DB 번지수(411-0)에 포함되는지 검사
-            const targetMainNo = address2.replace(/\s+/g, '').toLowerCase(); 
+            // 본번 정밀 매칭
+            const targetMainNo = address2.split('-')[0].replace(/[^0-9]/g, ''); 
+            
             let validItems = combinedItems.filter(item => {
-                const fullAddr = (String(item.address1 || item.address || "") + " " + String(item.address2 || "")).replace(/\s+/g, '').toLowerCase();
-                if(targetMainNo) return fullAddr.includes(targetMainNo);
-                return true;
+                let addr2Str = String(item.address2 || "").trim();
+                if (!addr2Str) {
+                    let parts = String(item.address1 || "").trim().split(/\s+/);
+                    addr2Str = parts[parts.length - 1];
+                }
+                let apiMainNo = addr2Str.split('-')[0].replace(/[^0-9]/g, '');
+                return apiMainNo === targetMainNo;
             });
 
             const uniqueMap = new Map();
             validItems.forEach(item => {
                 const elvNo = item.elevatorNo || item.elevator_no;
                 if (elvNo && !uniqueMap.has(elvNo)) {
-                    item.customBuldNm = placeName; 
+                    // ★ 상호명 옆에 실제 건물명 표시 (예: 스타벅스 세종청사점 [세종비즈니스센터])
+                    let origBuldNm = String(item.buldNm || item.buld_nm || "").trim();
+                    if (!origBuldNm || origBuldNm === "null" || origBuldNm.includes("없음")) {
+                        item.customBuldNm = placeName;
+                    } else {
+                        item.customBuldNm = `${placeName} [${origBuldNm}]`; 
+                    }
                     uniqueMap.set(elvNo, item);
                 }
             });
@@ -531,7 +540,7 @@
             currentAbortController = null;
 
             if (allElevatorsData.length === 0) {
-                alert(`해당 장소(${placeName})에 등록된 승객용 승강기가 없거나, 데이터가 불일치합니다.\n데이터 누락이 의심되면 [도로명/지번] 모드로 '${address1}'을 직접 검색해 보세요.`);
+                alert(`해당 장소(${placeName})에 등록된 승객용 승강기가 없거나, 데이터가 일치하지 않습니다.\n데이터 누락이 의심되면 [도로명/지번] 모드로 '${address1}'을 직접 검색해 보세요.`);
                 return;
             }
 
@@ -615,7 +624,6 @@
             let maxPages = Math.ceil(totalCount / 500);
             maxPages = Math.min(maxPages, 30); 
 
-            // ★ 속도 최적화: 3장씩 병렬 호출
             if (maxPages > 1) {
                 showLoadingMsg(`⏳ 전체 데이터(${totalCount}건) 확인 중... (최대 ${maxPages}p)`);
                 let fetchPromises = [];
