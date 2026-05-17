@@ -40,9 +40,6 @@
         .fab-container { position: absolute; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); right: 16px; display: flex; flex-direction: column; gap: 10px; z-index: 9; }
         .fab-btn { background: white; border: 1px solid #dcdcdc; padding: 10px 14px; border-radius: 20px; font-size: 13px; font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.15); cursor: pointer; color: #1e4e79; transition: background 0.2s; text-align: center; }
         .fab-btn:active { background: #f0f0f0; }
-
-        .load-more-btn { position: absolute; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); background: #1e4e79; color: white; border: none; padding: 12px 24px; border-radius: 30px; font-size: 14px; font-weight: bold; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 9; cursor: pointer; display: none; align-items: center; gap: 6px; transition: background 0.2s; white-space: nowrap; }
-        .load-more-btn:active { background: #15395b; }
         
         .bottom-sheet { position: absolute; bottom: 0; left: 0; right: 0; z-index: 10; display: flex; flex-direction: column; transform: translateY(100%); transition: transform 0.3s ease-out; background: white; border-radius: 16px 16px 0 0; box-shadow: 0 -4px 15px rgba(0,0,0,0.2); border: 1px solid #e0e0e0; max-height: 85vh; padding-bottom: env(safe-area-inset-bottom, 0px); }
         .bottom-sheet.active { transform: translateY(0); }
@@ -88,11 +85,6 @@
         <div class="fab-btn" onclick="moveToMyLocation()">내위치</div>
     </div>
 
-    <!-- 페이징 버튼 -->
-    <button id="loadMoreBtn" class="load-more-btn" onclick="executeSearch(true)">
-        <span>결과 계속 찾기</span> ➕
-    </button>
-
     <div class="search-bar-wrapper">
         <div class="page-header">
             <h1>승강기 설치유무검색</h1>
@@ -119,7 +111,13 @@
                 <option value="경남">경남</option>
                 <option value="제주">제주</option>
             </select>
-            <input type="text" id="searchInput" placeholder="주소, 건물명, 기관명 검색" autocomplete="off" 
+            
+            <select id="searchType" class="sido-select" style="margin-right:8px; color:#555;" onchange="document.getElementById('searchInput').focus()">
+                <option value="address" selected>주소</option>
+                <option value="building">건물명</option>
+            </select>
+
+            <input type="text" id="searchInput" placeholder="검색어 입력" autocomplete="off" 
                    onfocus="handleInputFocus()" onclick="handleInputFocus()" oninput="handleInput()" onkeypress="handleKeyPress(event)">
             <span class="icon-clear" onmousedown="fastClearSearch(event)" ontouchstart="fastClearSearch(event)">X</span>
             <span class="icon-search" onmousedown="fastExecute(event)" ontouchstart="fastExecute(event)">🔍</span>
@@ -168,11 +166,8 @@
     let geocoder; 
     let places; 
     
-    let currentPage = 1;
     let lastQuery = '';
     let lastSido = '';
-    let apiSearchWord = ''; 
-    let searchCoreTokens = []; 
     
     let allElevatorsData = []; 
     let globalGroups = []; 
@@ -227,11 +222,12 @@
 
                     if (searchTarget) {
                         document.getElementById('searchInput').value = searchTarget;
+                        document.getElementById('searchType').value = 'address'; // 맵 클릭시 주소검색으로 자동 설정
                         const sidoMap = {"서울특별시":"서울","부산광역시":"부산","대구광역시":"대구","인천광역시":"인천","광주광역시":"광주","대전광역시":"대전","울산광역시":"울산","세종특별자치시":"세종","경기도":"경기","강원특별자치도":"강원","충청북도":"충북","충청남도":"충남","전라북도":"전북","전북특별자치도":"전북","전라남도":"전남","경상북도":"경북","경상남도":"경남","제주특별자치도":"제주"};
                         let rawSido = result[0].address.region_1depth_name;
                         document.getElementById('sidoSelector').value = sidoMap[rawSido] || rawSido.substring(0,2);
                         
-                        executeSearch(false); 
+                        executeSearch(); 
                     } else {
                         document.getElementById('searchLoadingMsg').style.display = 'none';
                         alert("해당 위치의 주소를 파악할 수 없습니다.");
@@ -250,7 +246,6 @@
         allElevatorsData = [];
         globalGroups = [];
         clusterer.clear(); 
-        document.getElementById('loadMoreBtn').style.display = 'none';
         map.setCenter(new kakao.maps.LatLng(36.1, 127.7));
         map.setLevel(13);
     }
@@ -276,15 +271,16 @@
         }
     }
 
-    function fastSearch(event, sido, query) {
+    function fastSearch(event, sido, query, type) {
         if (event && (event.type === 'touchend' || event.type === 'touchstart') && isTouchMoved) return;
         if (event) { event.preventDefault(); event.stopPropagation(); }
         
         document.getElementById('sidoSelector').value = sido;
         document.getElementById('searchInput').value = query;
+        if (type) document.getElementById('searchType').value = type;
         document.getElementById('searchDropdown').style.display = 'none'; 
         document.getElementById('searchInput').blur(); 
-        executeSearch(false);
+        executeSearch();
     }
 
     function fastDelete(event, index) {
@@ -301,7 +297,7 @@
         if (event) event.preventDefault();
         document.getElementById('searchDropdown').style.display = 'none';
         document.getElementById('searchInput').blur();
-        executeSearch(false);
+        executeSearch();
     }
 
     function fastClearSearch(event) {
@@ -321,6 +317,7 @@
     function handleInput() {
         const val = document.getElementById('searchInput').value.trim();
         const sido = document.getElementById('sidoSelector').value;
+        const searchType = document.getElementById('searchType').value;
         clearTimeout(debounceTimer);
 
         if (!val) { renderRecentSearches(); return; }
@@ -328,7 +325,14 @@
         debounceTimer = setTimeout(async () => {
             try {
                 const firstWord = val.split(/\s+/)[0];
-                const url = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=1&numOfRows=20&sido=${encodeURIComponent(sido)}&buld_nm=${encodeURIComponent(firstWord)}&_type=json`;
+                let url = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=1&numOfRows=20&sido=${encodeURIComponent(sido)}`;
+                
+                if (searchType === 'building') {
+                    url += `&buld_nm=${encodeURIComponent(firstWord)}&_type=json`;
+                } else {
+                    url += `&address1=${encodeURIComponent(firstWord)}&_type=json`;
+                }
+                
                 const proxyUrl = DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(url);
                 const res = await fetch(proxyUrl).then(r => r.ok ? r.json() : {});
                 
@@ -343,14 +347,14 @@
                 };
                 
                 const suggestions = [...new Set(items.filter(isMatch).map(i => i.buldNm || i.buld_nm).filter(Boolean))];
-                renderAutocomplete(suggestions, val, sido);
+                renderAutocomplete(suggestions, val, sido, searchType);
             } catch (error) {
                 document.getElementById('searchDropdown').style.display = 'none';
             }
         }, 300);
     }
 
-    function renderAutocomplete(suggestions, keyword, currentSido) {
+    function renderAutocomplete(suggestions, keyword, currentSido, currentType) {
         const dropdown = document.getElementById('searchDropdown');
         dropdown.innerHTML = '';
         if (suggestions.length === 0) { dropdown.style.display = 'none'; return; }
@@ -358,7 +362,7 @@
         suggestions.forEach(s => {
             const div = document.createElement('div');
             div.className = 'dropdown-item';
-            div.innerHTML = `<div class="item-text" onmousedown="fastSearch(event, '${currentSido}', '${s}')" ontouchstart="fastSearch(event, '${currentSido}', '${s}')">🔍 ${s.replace(keyword, `<span style="color:#1e4e79; font-weight:bold;">${keyword}</span>`)}</div>`;
+            div.innerHTML = `<div class="item-text" onmousedown="fastSearch(event, '${currentSido}', '${s}', '${currentType}')" ontouchstart="fastSearch(event, '${currentSido}', '${s}', '${currentType}')">🔍 ${s.replace(keyword, `<span style="color:#1e4e79; font-weight:bold;">${keyword}</span>`)}</div>`;
             dropdown.appendChild(div);
         });
         dropdown.style.display = 'block';
@@ -373,9 +377,10 @@
         recents.forEach((item, index) => {
             const div = document.createElement('div');
             div.className = 'dropdown-item';
+            const typeLabel = item.type === 'building' ? '건물' : '주소';
             div.innerHTML = `
-                <div class="item-text" onmousedown="fastSearch(event, '${item.sido}', '${item.query}')" ontouchstart="fastSearch(event, '${item.sido}', '${item.query}')">
-                    <span class="item-tag">${item.sido}</span> ${item.query}
+                <div class="item-text" onmousedown="fastSearch(event, '${item.sido}', '${item.query}', '${item.type}')" ontouchstart="fastSearch(event, '${item.sido}', '${item.query}', '${item.type}')">
+                    <span class="item-tag">${item.sido} | ${typeLabel}</span> ${item.query}
                 </div>
                 <div class="item-delete" onmousedown="fastDelete(event, ${index})" ontouchstart="fastDelete(event, ${index})">✕</div>
             `;
@@ -385,9 +390,10 @@
     }
 
     function saveRecentSearch(sido, query) {
+        const searchType = document.getElementById('searchType').value;
         let recents = JSON.parse(localStorage.getItem('elevator_recent_searches') || '[]');
-        recents = recents.filter(r => !(r.sido === sido && r.query === query)); 
-        recents.unshift({sido, query}); 
+        recents = recents.filter(r => !(r.sido === sido && r.query === query && r.type === searchType)); 
+        recents.unshift({sido, query, type: searchType}); 
         if(recents.length > 7) recents.pop(); 
         localStorage.setItem('elevator_recent_searches', JSON.stringify(recents));
     }
@@ -396,176 +402,114 @@
     function closeDropdown() { document.getElementById('searchDropdown').style.display = 'none'; }
     document.addEventListener('click', function(event) { if (!document.getElementById('searchBar').contains(event.target)) closeDropdown(); });
 
-    async function executeSearch(isLoadMore = false) {
+    async function executeSearch() {
         const query = document.getElementById('searchInput').value.trim();
         const sido = document.getElementById('sidoSelector').value; 
+        const searchType = document.getElementById('searchType').value; 
         
         closeDropdown();
         closeBottomSheet();
 
         if (query === '') {
-            alert("조회할 주소나 건물명, 기관/상호명을 입력해주세요.");
+            alert("검색어를 입력해주세요.");
             return;
         }
 
-        if (!isLoadMore) {
-            currentPage = 1;
-            allElevatorsData = []; 
-            lastQuery = query;
-            lastSido = sido;
-            saveRecentSearch(sido, query);
-            
-            let words = lastQuery.trim().split(/\s+/);
-            apiSearchWord = words[0];
-            if (words.length > 1 && (apiSearchWord.includes(lastSido) || lastSido.includes(apiSearchWord.substring(0, 2)) || apiSearchWord === '세종특별자치시' || apiSearchWord === '세종시')) {
-                apiSearchWord = words[1];
-            }
-            
-            // ★ 속도 최적화 핵심: 사용자가 띄어쓰기로 직접 친 주소를 깔끔하게 분리
-            searchCoreTokens = [];
+        allElevatorsData = []; 
+        lastQuery = query;
+        lastSido = sido;
+        saveRecentSearch(sido, query);
+        
+        document.getElementById('searchLoadingMsg').innerText = "⏳ 검색 조건을 분석 중입니다...";
+        document.getElementById('searchLoadingMsg').style.display = 'block';
+
+        let targetBuldNm = "";
+        let targetAddress1 = "";
+        let targetAddress2 = "";
+
+        if (searchType === 'building') {
+            targetBuldNm = query;
+        } else {
+            let words = query.trim().split(/\s+/);
             if (words.length >= 2) {
-                let cleanWords = words.filter(w => !w.includes('세종') && !w.includes('특별자치시') && !w.includes('세종시'));
-                if(cleanWords.length >= 2) {
-                    searchCoreTokens = [cleanWords[cleanWords.length - 2], cleanWords[cleanWords.length - 1]];
-                } else if (cleanWords.length === 1 && words.length >= 2) {
-                     searchCoreTokens = [words[words.length-2], words[words.length-1]];
-                }
-            }
-
-            document.getElementById('searchLoadingMsg').innerText = "⏳ 주소 및 상호명을 분석 중입니다...";
-            document.getElementById('searchLoadingMsg').style.display = 'block';
-
-            let placeResult = await new Promise(resolve => {
-                places.keywordSearch(lastQuery, (data, status) => {
-                    if (status === kakao.maps.services.Status.OK && data.length > 0) resolve(data[0]);
-                    else resolve(null);
-                }, { size: 1 });
-            });
-
-            if (placeResult) {
-                let addrToUse = placeResult.road_address_name || placeResult.address_name;
-                if (addrToUse) {
-                    let parts = addrToUse.trim().split(/\s+/);
-                    if (parts.length >= 2) {
-                        apiSearchWord = parts[parts.length-2]; 
-                        searchCoreTokens = [parts[parts.length-2].toLowerCase(), parts[parts.length-1].toLowerCase()];
-                    }
+                targetAddress2 = words.pop(); 
+                targetAddress1 = words.join(" "); 
+            } else {
+                let match = query.match(/([가-힣]+[a-zA-Z0-9]*[길로동읍면])([0-9]+.*)/);
+                if (match) {
+                    targetAddress1 = match[1]; 
+                    targetAddress2 = match[2];
+                } else {
+                    targetAddress1 = query;
                 }
             }
         }
 
-        document.getElementById('loadMoreBtn').style.display = 'none';
-        
-        const MAX_ROWS = 500; 
-        const AUTO_SEARCH_LIMIT = 10; 
-        let targetEndPage = currentPage + AUTO_SEARCH_LIMIT - 1;
-        let found = false;
-        let hasMoreData = false;
-        let lastSearchedPage = currentPage;
-        
-        const uniqueMap = new Map(); 
-
         try {
-            for (let p = currentPage; p <= targetEndPage; p++) {
-                document.getElementById('searchLoadingMsg').style.display = 'block';
-                document.getElementById('searchLoadingMsg').innerText = `⏳ 데이터를 계속 찾는 중입니다... (${p}페이지 탐색 중)`;
-                lastSearchedPage = p;
+            document.getElementById('searchLoadingMsg').innerText = `⏳ API 서버 통신 중...`;
+            const MAX_ROWS = 500; 
 
-                let combinedItems = [];
-                let currentBatchCount = 0; 
-
-                const urlBuld = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${p}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + `&buld_nm=` + encodeURIComponent(apiSearchWord) + `&_type=json`;
-                try {
-                    let resBuld = await fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlBuld));
-                    if (resBuld.ok) {
-                        let data = await resBuld.json();
-                        let items = data.response?.body?.items?.item || [];
-                        if (!Array.isArray(items)) items = [items];
-                        combinedItems.push(...items);
-                        if (items.length >= MAX_ROWS) currentBatchCount += items.length;
-                    }
-                } catch(e) { console.error(e); }
-
-                await new Promise(r => setTimeout(r, 200)); 
-
-                // ★ 속도 최적화 핵심: 도로명과 건물번호를 딱 집어서 요청 (통신 속도 10배 증가)
-                let urlAddr = "";
-                if (searchCoreTokens.length === 2) {
-                    urlAddr = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${p}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + `&address1=` + encodeURIComponent(searchCoreTokens[0]) + `&address2=` + encodeURIComponent(searchCoreTokens[1]) + `&_type=json`;
-                } else {
-                    urlAddr = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${p}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + `&address1=` + encodeURIComponent(apiSearchWord) + `&_type=json`;
-                }
-
-                try {
-                    let resAddr = await fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlAddr));
-                    if (resAddr.ok) {
-                        let data = await resAddr.json();
-                        let items = data.response?.body?.items?.item || [];
-                        if (!Array.isArray(items)) items = [items];
-                        combinedItems.push(...items);
-                        if (items.length >= MAX_ROWS) currentBatchCount += items.length;
-                    }
-                } catch(e) { console.error(e); }
-
-                if (currentBatchCount > 0) hasMoreData = true;
-                else hasMoreData = false;
-
-                const isMatch = (item) => {
-                    const b = String(item.buldNm || item.buld_nm || "").toLowerCase();
-                    const a = (String(item.address1 || item.address || "") + " " + String(item.address2 || "")).toLowerCase();
-                    
-                    const userKeywords = lastQuery.toLowerCase().trim().split(/\s+/);
-                    const matchUser = userKeywords.every(kw => b.includes(kw) || a.includes(kw));
-
-                    const matchPlace = searchCoreTokens.length === 2 && 
-                                       a.includes(searchCoreTokens[0]) && a.includes(searchCoreTokens[1]);
-
-                    return matchUser || matchPlace;
-                };
-
-                let validItems = combinedItems.filter(isMatch);
-
-                validItems.forEach(item => {
-                    const elvNo = item.elevatorNo || item.elevator_no;
-                    if (elvNo && !uniqueMap.has(elvNo)) uniqueMap.set(elvNo, item);
-                });
-
-                let filteredUniqueItems = Array.from(uniqueMap.values()).filter(apiItem => {
-                    const type = String(apiItem.elvtrKindNm || apiItem.elvtrDivNm || "");
-                    if (type.includes('덤웨이터') || type === '화물용' || (type.includes('화물용') && !type.includes('승객'))) return false;
-                    return true;
-                });
-
-                if (filteredUniqueItems.length > 0) {
-                    allElevatorsData = filteredUniqueItems;
-                    found = true;
-                    break;
-                }
-
-                if (!hasMoreData) break;
-                
-                await new Promise(r => setTimeout(r, 200)); 
+            let baseApiUrl = "";
+            if (searchType === 'building') {
+                baseApiUrl = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + `&buld_nm=` + encodeURIComponent(targetBuldNm) + `&_type=json`;
+            } else {
+                baseApiUrl = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + `&address1=` + encodeURIComponent(targetAddress1);
+                if (targetAddress2) baseApiUrl += `&address2=` + encodeURIComponent(targetAddress2);
+                baseApiUrl += `&_type=json`;
             }
+
+            let resFirst = await fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(baseApiUrl + `&pageNo=1`)).then(r => r.ok ? r.json() : {});
             
-            currentPage = lastSearchedPage; 
+            let combinedItems = [];
+            let totalCount = resFirst.response?.body?.totalCount || 0;
+            
+            let items = resFirst.response?.body?.items?.item || [];
+            if (!Array.isArray(items)) items = [items];
+            combinedItems.push(...items);
+
+            let maxPages = Math.ceil(totalCount / MAX_ROWS);
+            maxPages = Math.min(maxPages, 15);
+
+            let extraFetches = [];
+            for(let p = 2; p <= maxPages; p++) {
+                extraFetches.push(fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(baseApiUrl + `&pageNo=${p}`)).then(r => r.ok ? r.json() : {}));
+            }
+
+            if (extraFetches.length > 0) {
+                document.getElementById('searchLoadingMsg').innerText = `⏳ 데이터(${totalCount}건) 일괄 수집 중...`;
+                for(let i = 0; i < extraFetches.length; i += 5) {
+                    let chunk = extraFetches.slice(i, i + 5);
+                    let chunkRes = await Promise.all(chunk);
+                    chunkRes.forEach(res => {
+                        let itms = res.response?.body?.items?.item || [];
+                        if (!Array.isArray(itms)) itms = [itms];
+                        combinedItems.push(...itms);
+                    });
+                    await new Promise(r => setTimeout(r, 100)); 
+                }
+            }
+
+            const uniqueMap = new Map();
+            combinedItems.forEach(item => {
+                const elvNo = item.elevatorNo || item.elevator_no;
+                if (elvNo && !uniqueMap.has(elvNo)) uniqueMap.set(elvNo, item);
+            });
+
+            let filteredUniqueItems = Array.from(uniqueMap.values()).filter(apiItem => {
+                const type = String(apiItem.elvtrKindNm || apiItem.elvtrDivNm || "");
+                if (type.includes('덤웨이터') || type === '화물용' || (type.includes('화물용') && !type.includes('승객'))) return false;
+                return true;
+            });
+
             document.getElementById('searchLoadingMsg').style.display = 'none';
 
-            if (found) {
-                if (hasMoreData) {
-                    document.getElementById('loadMoreBtn').style.display = 'flex';
-                    document.getElementById('loadMoreBtn').innerHTML = `<span>현재 ${currentPage}페이지 (결과 더보기)</span> ➕`;
-                }
-                buildGlobalGroups();
-            } else {
-                if (hasMoreData) {
-                    document.getElementById('loadMoreBtn').style.display = 'flex';
-                    document.getElementById('loadMoreBtn').innerHTML = `<span>결과 없음. 계속 찾기 (${currentPage + 1}p)</span> ➕`;
-                    if (!isLoadMore) alert(`자동으로 ${currentPage}페이지까지 탐색했으나 결과가 없습니다.\n서버에 데이터가 더 있으니 화면 하단의 '계속 찾기'를 눌러주세요.`);
-                } else {
-                    if (isLoadMore) alert("더 이상 불러올 승강기 데이터가 없습니다.");
-                    else alert(`[${lastSido}] 지역에 "${lastQuery}" (으)로 검색된 결과가 없습니다.`);
-                }
+            if (filteredUniqueItems.length === 0) {
+                alert(`[${lastSido}] 지역에 "${lastQuery}" (으)로 검색된 결과가 없습니다.`);
+                return;
             }
+
+            allElevatorsData = filteredUniqueItems;
+            buildGlobalGroups();
 
         } catch (error) {
             console.error(error);
@@ -659,7 +603,6 @@
                 });
             });
         })).then(() => {
-            document.getElementById('searchLoadingMsg').style.display = 'none';
             renderData();
         });
     }
@@ -690,6 +633,7 @@
         
         clusterer.clear(); 
         let newOverlays = [];
+        let usedCoords = new Set(); 
 
         renderList.forEach(group => {
             const isAllStopped = group.elevators.every(e => !e.isOperating);
@@ -703,8 +647,21 @@
                 openBottomSheet(group); 
             };
 
+            let lat = group.lat;
+            let lng = group.lng;
+            let coordKey = `${lat.toFixed(5)}_${lng.toFixed(5)}`;
+            let offsetMultiplier = 1;
+            
+            while (usedCoords.has(coordKey)) {
+                lat += 0.00015 * offsetMultiplier; 
+                lng -= 0.00015 * offsetMultiplier;
+                coordKey = `${lat.toFixed(5)}_${lng.toFixed(5)}`;
+                offsetMultiplier++;
+            }
+            usedCoords.add(coordKey);
+
             newOverlays.push(new kakao.maps.CustomOverlay({
-                position: new kakao.maps.LatLng(group.lat, group.lng),
+                position: new kakao.maps.LatLng(lat, lng), 
                 content: content,
                 yAnchor: 1,
                 clickable: true 
@@ -713,7 +670,6 @@
         
         clusterer.addMarkers(newOverlays);
         
-        // ★ 지도 줌/팬 로직 (1개 vs 여러 개 분기)
         if (renderList.length === 1) {
             map.setLevel(5); 
             setTimeout(() => {
@@ -721,8 +677,8 @@
             }, 100);
         } else if (renderList.length > 1) {
             let bounds = new kakao.maps.LatLngBounds();
-            renderList.forEach(group => {
-                bounds.extend(new kakao.maps.LatLng(group.lat, group.lng));
+            newOverlays.forEach(overlay => {
+                bounds.extend(overlay.getPosition()); 
             });
             setTimeout(() => {
                 map.setBounds(bounds);
