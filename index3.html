@@ -468,11 +468,12 @@
             combinedItems.push(...items);
 
             let maxPages = Math.ceil(totalCount / MAX_ROWS);
-            maxPages = Math.min(maxPages, 15);
+            maxPages = Math.min(maxPages, 30); // 한도 30페이지 (1만 5천건)
 
             if (maxPages > 1) {
                 document.getElementById('searchLoadingMsg').innerText = `⏳ 방대한 데이터(${totalCount}건)를 안전하게 수집 중입니다...`;
                 
+                // 429 에러 방어: 순차적 통신
                 for (let p = 2; p <= maxPages; p++) {
                     try {
                         let res = await fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(baseApiUrl + `&pageNo=${p}`));
@@ -494,12 +495,26 @@
                         console.error("Fetch error on page", p, e);
                     }
                     
-                    await new Promise(r => setTimeout(r, 300));
+                    await new Promise(r => setTimeout(r, 300)); // 0.3초 대기
                 }
             }
 
+            // 프론트엔드 완벽 필터링 복구 부분
+            const queryNoSpace = query.replace(/\s+/g, '').toLowerCase(); 
+            
+            let validItems = combinedItems.filter(item => {
+                const b = String(item.buldNm || item.buld_nm || "").replace(/\s+/g, '').toLowerCase();
+                const a = (String(item.address1 || item.address || "") + String(item.address2 || "")).replace(/\s+/g, '').toLowerCase();
+                
+                if (searchType === 'building') {
+                    return b.includes(queryNoSpace); 
+                } else {
+                    return a.includes(queryNoSpace); 
+                }
+            });
+
             const uniqueMap = new Map();
-            combinedItems.forEach(item => {
+            validItems.forEach(item => {
                 const elvNo = item.elevatorNo || item.elevator_no;
                 if (elvNo && !uniqueMap.has(elvNo)) uniqueMap.set(elvNo, item);
             });
