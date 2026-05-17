@@ -88,9 +88,9 @@
         <div class="fab-btn" onclick="moveToMyLocation()">내위치</div>
     </div>
 
-    <!-- 페이징 버튼 (결과가 없을 때도 띄울 수 있도록 ID 유지) -->
+    <!-- 페이징 버튼 -->
     <button id="loadMoreBtn" class="load-more-btn" onclick="executeSearch(true)">
-        <span>현재 1페이지 (결과 더보기)</span> ➕
+        <span>결과 계속 찾기</span> ➕
     </button>
 
     <div class="search-bar-wrapper">
@@ -168,7 +168,6 @@
     let geocoder; 
     let places; 
     
-    // 페이지네이션 글로벌 변수
     let currentPage = 1;
     let lastQuery = '';
     let lastSido = '';
@@ -397,7 +396,7 @@
     function closeDropdown() { document.getElementById('searchDropdown').style.display = 'none'; }
     document.addEventListener('click', function(event) { if (!document.getElementById('searchBar').contains(event.target)) closeDropdown(); });
 
-    // ★ 수동 페이징이 결합된 안정적이고 완벽한 메인 검색 로직
+    // ★ 서버 과부하를 막는 '안전한 자동 연속 탐색' 로직
     async function executeSearch(isLoadMore = false) {
         const query = document.getElementById('searchInput').value.trim();
         const sido = document.getElementById('sidoSelector').value; 
@@ -410,16 +409,13 @@
             return;
         }
 
-        // 새 검색일 경우 초기화
         if (!isLoadMore) {
             currentPage = 1;
             allElevatorsData = []; 
             lastQuery = query;
             lastSido = sido;
             saveRecentSearch(sido, query);
-            document.getElementById('loadMoreBtn').style.display = 'none';
-
-            // 1. 단어 정제 (사용자 검색어의 핵심 첫 단어 추출)
+            
             let words = lastQuery.trim().split(/\s+/);
             apiSearchWord = words[0];
             if (words.length > 1 && (apiSearchWord.includes(lastSido) || lastSido.includes(apiSearchWord.substring(0, 2)) || apiSearchWord === '세종특별자치시' || apiSearchWord === '세종시')) {
@@ -430,7 +426,6 @@
             document.getElementById('searchLoadingMsg').innerText = "⏳ 주소 및 상호명을 분석 중입니다...";
             document.getElementById('searchLoadingMsg').style.display = 'block';
 
-            // 2. 카카오 장소 검색 연동 (상호명 검색 시)
             let placeResult = await new Promise(resolve => {
                 places.keywordSearch(lastQuery, (data, status) => {
                     if (status === kakao.maps.services.Status.OK && data.length > 0) resolve(data[0]);
@@ -443,118 +438,128 @@
                 if (addrToUse) {
                     let parts = addrToUse.trim().split(/\s+/);
                     if (parts.length >= 2) {
-                        apiSearchWord = parts[parts.length-2]; // 예: "한누리대로"
-                        searchCoreTokens = [parts[parts.length-2].toLowerCase(), parts[parts.length-1].toLowerCase()]; // 예: ["한누리대로", "169"]
+                        apiSearchWord = parts[parts.length-2]; 
+                        searchCoreTokens = [parts[parts.length-2].toLowerCase(), parts[parts.length-1].toLowerCase()];
                     }
                 }
             }
-        } else {
-            // 더보기 클릭 시 기존 데이터 세팅
-            currentPage++;
-            document.getElementById('searchInput').value = lastQuery;
-            document.getElementById('sidoSelector').value = lastSido;
         }
 
+        document.getElementById('loadMoreBtn').style.display = 'none';
+        
+        const MAX_ROWS = 500; 
+        const AUTO_SEARCH_LIMIT = 5; // 한 번 클릭에 최대 5페이지까지 자동 탐색
+        let loopCount = 0;
+        let found = false;
+        let hasMoreData = false;
+
         try {
-            document.getElementById('searchLoadingMsg').innerText = `⏳ 데이터를 수집 중입니다 (${currentPage}페이지)...`;
-            document.getElementById('searchLoadingMsg').style.display = 'block';
-            
-            const MAX_ROWS = 500; 
+            while (loopCount < AUTO_SEARCH_LIMIT) {
+                document.getElementById('searchLoadingMsg').style.display = 'block';
+                document.getElementById('searchLoadingMsg').innerText = `⏳ 데이터를 찾는 중입니다... (${currentPage}페이지 탐색 중)`;
 
-            // 3. 서버에 API 찌르기 (과부하 방지를 위해 2개만 깔끔하게 요청)
-            let fetches = [
-                fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${currentPage}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + `&buld_nm=` + encodeURIComponent(apiSearchWord) + `&_type=json`)).then(r => r.ok ? r.json() : {}),
-                fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${currentPage}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + `&address1=` + encodeURIComponent(apiSearchWord) + `&_type=json`)).then(r => r.ok ? r.json() : {})
-            ];
+                let combinedItems = [];
+                hasMoreData = false;
 
-            const results = await Promise.all(fetches);
+                // 1. 건물명 검색
+                const urlBuld = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${currentPage}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + `&buld_nm=` + encodeURIComponent(apiSearchWord) + `&_type=json`;
+                try {
+                    let resBuld = await fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlBuld));
+                    if (resBuld.ok) {
+                        let data = await resBuld.json();
+                        let items = data.response?.body?.items?.item || [];
+                        if (!Array.isArray(items)) items = [items];
+                        combinedItems.push(...items);
+                        if (items.length >= MAX_ROWS) hasMoreData = true;
+                    }
+                } catch(e) { console.error(e); }
 
-            let combinedItems = [];
-            let hasMoreData = false;
+                // ★ 서버 과부하 방지 (0.5초 딜레이)
+                await new Promise(r => setTimeout(r, 500));
 
-            results.forEach(res => {
-                let items = res.response?.body?.items?.item || [];
-                if (!Array.isArray(items)) items = [items];
+                // 2. 주소 검색
+                const urlAddr = API_CONFIG.BASE_URL + `?serviceKey=${API_CONFIG.SERVICE_KEY}&pageNo=${currentPage}&numOfRows=${MAX_ROWS}&sido=` + encodeURIComponent(lastSido) + `&address1=` + encodeURIComponent(apiSearchWord) + `&_type=json`;
+                try {
+                    let resAddr = await fetch(DEPLOY_CONFIG.CLOUDFLARE_WORKER_URL + encodeURIComponent(urlAddr));
+                    if (resAddr.ok) {
+                        let data = await resAddr.json();
+                        let items = data.response?.body?.items?.item || [];
+                        if (!Array.isArray(items)) items = [items];
+                        combinedItems.push(...items);
+                        if (items.length >= MAX_ROWS) hasMoreData = true;
+                    }
+                } catch(e) { console.error(e); }
+
+                // ★ 서버 과부하 방지 (0.5초 딜레이)
+                await new Promise(r => setTimeout(r, 500));
+
+                // 프론트엔드 필터링
+                const isMatch = (item) => {
+                    const b = String(item.buldNm || item.buld_nm || "").toLowerCase();
+                    const a = (String(item.address1 || item.address || "") + " " + String(item.address2 || "")).toLowerCase();
+                    
+                    const userKeywords = lastQuery.toLowerCase().trim().split(/\s+/);
+                    const matchUser = userKeywords.every(kw => b.includes(kw) || a.includes(kw));
+
+                    const matchPlace = searchCoreTokens.length === 2 && 
+                                       a.includes(searchCoreTokens[0]) && a.includes(searchCoreTokens[1]);
+
+                    return matchUser || matchPlace;
+                };
+
+                let validItems = combinedItems.filter(isMatch);
+
+                // 중복 및 화물용 제거
+                const uniqueMap = new Map();
+                allElevatorsData.forEach(item => {
+                    const elvNo = item.elevatorNo || item.elevator_no;
+                    if (elvNo) uniqueMap.set(elvNo, item);
+                });
+                validItems.forEach(item => {
+                    const elvNo = item.elevatorNo || item.elevator_no;
+                    if (elvNo && !uniqueMap.has(elvNo)) uniqueMap.set(elvNo, item);
+                });
+                let filteredUniqueItems = Array.from(uniqueMap.values());
                 
-                // ★ 사용자님 요청: 서버에서 500개를 꽉 채워 줬다면 무조건 다음 페이지가 있다고 판단
-                if (items.length >= MAX_ROWS) {
-                    hasMoreData = true;
+                filteredUniqueItems = filteredUniqueItems.filter(apiItem => {
+                    const type = String(apiItem.elvtrKindNm || apiItem.elvtrDivNm || "");
+                    if (type.includes('덤웨이터') || type === '화물용' || (type.includes('화물용') && !type.includes('승객'))) return false;
+                    return true;
+                });
+
+                if (filteredUniqueItems.length > 0) {
+                    allElevatorsData = filteredUniqueItems;
+                    found = true;
+                    break; // 찾았으면 루프 즉시 탈출
                 }
 
-                combinedItems.push(...items);
-            });
+                if (!hasMoreData) {
+                    break; // 서버에 남은 데이터가 없으면 탈출
+                }
 
-            // 4. 프론트엔드 필터링 (가져온 500개 중 진짜 데이터만 걸러내기)
-            const isMatch = (item) => {
-                const b = String(item.buldNm || item.buld_nm || "").toLowerCase();
-                const a = (String(item.address1 || item.address || "") + " " + String(item.address2 || "")).toLowerCase();
-                
-                // 1차 조건: 사용자가 입력한 검색어가 모두 포함되었는가?
-                const userKeywords = lastQuery.toLowerCase().trim().split(/\s+/);
-                const matchUser = userKeywords.every(kw => b.includes(kw) || a.includes(kw));
-
-                // 2차 조건: 카카오에서 찾아준 도로명+지번 조합(예: 한누리대로, 169)이 포함되었는가?
-                const matchPlace = searchCoreTokens.length === 2 && 
-                                   a.includes(searchCoreTokens[0]) && a.includes(searchCoreTokens[1]);
-
-                return matchUser || matchPlace;
-            };
-
-            let validItems = combinedItems.filter(isMatch);
-
-            // 중복 및 화물용 제거
-            const uniqueMap = new Map();
-            allElevatorsData.forEach(item => {
-                const elvNo = item.elevatorNo || item.elevator_no;
-                if (elvNo) uniqueMap.set(elvNo, item);
-            });
-            validItems.forEach(item => {
-                const elvNo = item.elevatorNo || item.elevator_no;
-                if (elvNo && !uniqueMap.has(elvNo)) uniqueMap.set(elvNo, item);
-            });
-            let filteredUniqueItems = Array.from(uniqueMap.values());
-            
-            filteredUniqueItems = filteredUniqueItems.filter(apiItem => {
-                const type = String(apiItem.elvtrKindNm || apiItem.elvtrDivNm || "");
-                if (type.includes('덤웨이터') || type === '화물용' || (type.includes('화물용') && !type.includes('승객'))) return false;
-                return true;
-            });
+                // 못 찾았고 데이터가 더 있으면 페이지를 올리고 반복
+                currentPage++;
+                loopCount++;
+            }
 
             document.getElementById('searchLoadingMsg').style.display = 'none';
 
-            const loadMoreBtn = document.getElementById('loadMoreBtn');
-
-            // ★ 5. 버튼 노출 제어 (사용자님 요청 완벽 구현)
-            if (filteredUniqueItems.length === 0) {
+            if (found) {
                 if (hasMoreData) {
-                    // 이번 500개에는 결과가 없지만 서버에 데이터가 남았을 때
-                    loadMoreBtn.style.display = 'flex';
-                    loadMoreBtn.innerHTML = `<span>결과 없음. 다음 페이지 계속 찾기 (${currentPage + 1}p)</span> ➕`;
-                    if (!isLoadMore) {
-                        alert(`현재 ${currentPage}페이지에는 결과가 없습니다.\n데이터가 많아 숨겨져 있을 수 있으니 화면 하단의 '계속 찾기'를 눌러주세요.`);
-                    }
+                    document.getElementById('loadMoreBtn').style.display = 'flex';
+                    document.getElementById('loadMoreBtn').innerHTML = `<span>현재 ${currentPage}페이지 (결과 더보기)</span> ➕`;
+                }
+                buildGlobalGroups();
+            } else {
+                if (hasMoreData) {
+                    document.getElementById('loadMoreBtn').style.display = 'flex';
+                    document.getElementById('loadMoreBtn').innerHTML = `<span>결과 없음. 계속 찾기 (${currentPage}p)</span> ➕`;
+                    if (!isLoadMore) alert(`자동으로 ${currentPage - 1}페이지까지 탐색했으나 결과가 없습니다.\n서버에 데이터가 더 있으니 화면 하단의 '계속 찾기'를 눌러주세요.`);
                 } else {
-                    // 결과도 없고 서버 데이터도 끝났을 때
-                    loadMoreBtn.style.display = 'none';
                     if (isLoadMore) alert("더 이상 불러올 승강기 데이터가 없습니다.");
                     else alert(`[${lastSido}] 지역에 "${lastQuery}" (으)로 검색된 결과가 없습니다.`);
                 }
-                return;
             }
-
-            allElevatorsData = filteredUniqueItems;
-
-            if (hasMoreData) {
-                // 결과도 있고 서버 데이터도 더 있을 때
-                loadMoreBtn.style.display = 'flex';
-                loadMoreBtn.innerHTML = `<span>현재 ${currentPage}페이지 (결과 더보기)</span> ➕`;
-            } else {
-                // 결과는 찾았으나 서버 데이터는 끝났을 때
-                loadMoreBtn.style.display = 'none';
-                if (isLoadMore) alert("모든 검색 결과를 불러왔습니다.");
-            }
-
-            buildGlobalGroups();
 
         } catch (error) {
             console.error(error);
@@ -648,7 +653,6 @@
                 });
             });
         })).then(() => {
-            document.getElementById('searchLoadingMsg').style.display = 'none';
             renderData();
         });
     }
