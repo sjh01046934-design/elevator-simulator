@@ -13,7 +13,7 @@
         .app-container { width: 100%; max-width: 412px; height: 100vh; background-color: #e5e5e5; position: relative; overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.15); }
         #map { width: 100%; height: 100%; z-index: 1; }
         
-        /* ★ 상단 타이틀 영역 */
+        /* 상단 타이틀 영역 */
         .page-header { text-align: center; margin-bottom: 12px; padding-top: 10px; }
         .page-header h1 { font-size: 20px; color: #1e4e79; font-weight: 900; letter-spacing: -1px; margin-bottom: 2px; text-shadow: 1px 1px 2px rgba(255,255,255,0.8); }
         .page-header p { font-size: 11px; color: #555; font-weight: 700; letter-spacing: -0.5px; }
@@ -36,16 +36,16 @@
         .dropdown-item { padding: 12px 16px; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
         .dropdown-item:last-child { border-bottom: none; }
         .dropdown-item:hover { background-color: #f8fafc; }
-        .item-text { font-size: 14px; font-weight: 500; color: #333; display: flex; align-items: center; gap: 8px; }
+        .item-text { font-size: 14px; font-weight: 500; color: #333; display: flex; align-items: center; gap: 8px; flex: 1; }
         .item-tag { font-size: 10px; background: #edf2f7; color: #4a5568; padding: 2px 6px; border-radius: 4px; }
-        .item-delete { color: #ccc; padding: 4px; font-size: 14px; }
+        .item-delete { color: #ccc; padding: 4px 0 4px 12px; font-size: 14px; }
         
-        /* ★ 텍스트형 플로팅 액션 버튼 (모바일 태스크바를 피하기 위해 bottom을 80px로 상향) */
+        /* 플로팅 액션 버튼 */
         .fab-container { position: absolute; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); right: 16px; display: flex; flex-direction: column; gap: 10px; z-index: 9; }
         .fab-btn { background: white; border: 1px solid #dcdcdc; padding: 10px 14px; border-radius: 20px; font-size: 13px; font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.15); cursor: pointer; color: #1e4e79; transition: background 0.2s; text-align: center; }
         .fab-btn:active { background: #f0f0f0; }
 
-        /* ★ 더보기 버튼 (버튼들과 동일한 높이로 상향) */
+        /* 더보기 버튼 */
         .load-more-btn { position: absolute; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); background: #1e4e79; color: white; border: none; padding: 12px 24px; border-radius: 30px; font-size: 14px; font-weight: bold; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 9; cursor: pointer; display: none; align-items: center; gap: 6px; transition: background 0.2s; }
         .load-more-btn:active { background: #15395b; }
         
@@ -91,18 +91,15 @@
 <div class="app-container">
     <div id="map"></div>
 
-    <!-- 플로팅 액션 버튼 (순서대로 상단: 첫화면, 하단: 내위치) -->
     <div class="fab-container">
         <div class="fab-btn" onclick="resetMap()">첫화면</div>
         <div class="fab-btn" onclick="moveToMyLocation()">내위치</div>
     </div>
 
-    <!-- 데이터 더보기 버튼 -->
     <button id="loadMoreBtn" class="load-more-btn" onclick="executeSearch(true)">
         <span>현재 1페이지 (결과 더보기)</span> ➕
     </button>
 
-    <!-- 검색바 영역 및 타이틀 -->
     <div class="search-bar-wrapper">
         <div class="page-header">
             <h1>승강기 설치유무검색</h1>
@@ -131,8 +128,10 @@
             </select>
             <input type="text" id="searchInput" placeholder="주소 또는 건물명 검색" autocomplete="off" 
                    onfocus="handleInputFocus()" onclick="handleInputFocus()" oninput="handleInput()" onkeypress="handleKeyPress(event)">
-            <span class="icon-clear" onclick="clearSearch()">X</span>
-            <span class="icon-search" onclick="executeSearch(false)">🔍</span>
+            
+            <!-- ★ 아이콘 버튼 원터치 최적화 -->
+            <span class="icon-clear" onclick="fastClearSearch(event)" ontouchend="fastClearSearch(event)">X</span>
+            <span class="icon-search" onclick="fastExecute(event)" ontouchend="fastExecute(event)">🔍</span>
             
             <div class="search-dropdown" id="searchDropdown"></div>
         </div>
@@ -140,7 +139,6 @@
         <div id="searchLoadingMsg">⏳ 데이터를 불러오는 중입니다...</div>
     </div>
 
-    <!-- 승강기 상세정보 바텀 시트 -->
     <div class="bottom-sheet" id="bottomSheet">
         <div class="info-card">
             <div class="card-header">
@@ -178,15 +176,18 @@
     let clusterer; 
     let geocoder; 
     
-    // 글로벌 데이터 상태
     let currentPage = 1;
     let lastQuery = '';
     let lastSido = '';
     
-    // 메모리 캐싱 데이터
     let allElevatorsData = []; 
     let globalGroups = []; 
     let geocodeCache = new Map(); 
+
+    // ★ 스크롤 감지를 위한 전역 변수 (터치 시 스크롤 중이면 터치를 무시하기 위함)
+    let isTouchMoved = false;
+    document.addEventListener('touchstart', function() { isTouchMoved = false; }, {passive: true});
+    document.addEventListener('touchmove', function() { isTouchMoved = true; }, {passive: true});
 
     const DEPLOY_CONFIG = { CLOUDFLARE_WORKER_URL: 'https://wild-river-017e.sjh01046934.workers.dev/?url=' };
     const API_CONFIG = { SERVICE_KEY: 'bf828022bb4535034959395893c59397fff91ac219c93670610575093972289d', BASE_URL: 'https://apis.data.go.kr/B553664/ElevatorInformationService/getElevatorListM' };
@@ -215,17 +216,14 @@
         });
     }
 
-    // --- 유틸 기능 (첫화면, 내위치) ---
     function resetMap() {
         document.getElementById('searchInput').value = '';
         closeBottomSheet();
         closeDropdown();
-        
         allElevatorsData = [];
         globalGroups = [];
         clusterer.clear(); 
         document.getElementById('loadMoreBtn').style.display = 'none';
-        
         map.setCenter(new kakao.maps.LatLng(36.1, 127.7));
         map.setLevel(13);
     }
@@ -253,7 +251,51 @@
         }
     }
 
-    // --- 최근 검색어 드롭다운 ---
+    // ★ 모바일 원터치 검색 실행 함수
+    function fastSearch(event, sido, query) {
+        if (event && event.type === 'touchend' && isTouchMoved) return; // 스크롤 중이면 실행 방지
+        if (event) {
+            event.preventDefault(); // 기본 클릭 이벤트 중복 방지 및 키보드 이슈 해결
+            event.stopPropagation();
+        }
+        
+        document.getElementById('sidoSelector').value = sido;
+        document.getElementById('searchInput').value = query;
+        document.getElementById('searchDropdown').style.display = 'none'; // 즉각적인 UI 피드백
+        document.getElementById('searchInput').blur(); // 가상 키보드 즉시 내림
+        
+        executeSearch(false);
+    }
+
+    // ★ 모바일 원터치 삭제 함수
+    function fastDelete(event, index) {
+        if (event && event.type === 'touchend' && isTouchMoved) return;
+        if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+        let recents = JSON.parse(localStorage.getItem('elevator_recent_searches') || '[]'); 
+        recents.splice(index, 1); 
+        localStorage.setItem('elevator_recent_searches', JSON.stringify(recents)); 
+        renderRecentSearches();
+    }
+
+    // ★ 모바일 원터치 돋보기 및 지우기 버튼 함수
+    function fastExecute(event) {
+        if (event && event.type === 'touchend' && isTouchMoved) return;
+        if (event) event.preventDefault();
+        document.getElementById('searchDropdown').style.display = 'none';
+        document.getElementById('searchInput').blur();
+        executeSearch(false);
+    }
+
+    function fastClearSearch(event) {
+        if (event && event.type === 'touchend' && isTouchMoved) return;
+        if (event) event.preventDefault();
+        document.getElementById('searchInput').value = ''; 
+        document.getElementById('searchInput').focus();
+    }
+
     let debounceTimer;
 
     function handleInputFocus() {
@@ -279,14 +321,14 @@
                 if (!Array.isArray(items)) items = [items];
                 
                 const suggestions = [...new Set(items.map(i => i.buldNm || i.buld_nm).filter(Boolean))];
-                renderAutocomplete(suggestions, val);
+                renderAutocomplete(suggestions, val, sido);
             } catch (error) {
                 document.getElementById('searchDropdown').style.display = 'none';
             }
         }, 300);
     }
 
-    function renderAutocomplete(suggestions, keyword) {
+    function renderAutocomplete(suggestions, keyword, currentSido) {
         const dropdown = document.getElementById('searchDropdown');
         dropdown.innerHTML = '';
         if (suggestions.length === 0) { dropdown.style.display = 'none'; return; }
@@ -294,8 +336,8 @@
         suggestions.forEach(s => {
             const div = document.createElement('div');
             div.className = 'dropdown-item';
-            div.innerHTML = `<div class="item-text">🔍 ${s.replace(keyword, `<span style="color:#1e4e79; font-weight:bold;">${keyword}</span>`)}</div>`;
-            div.onclick = () => { document.getElementById('searchInput').value = s; executeSearch(false); };
+            // ★ 원터치 이벤트 적용
+            div.innerHTML = `<div class="item-text" onclick="fastSearch(event, '${currentSido}', '${s}')" ontouchend="fastSearch(event, '${currentSido}', '${s}')">🔍 ${s.replace(keyword, `<span style="color:#1e4e79; font-weight:bold;">${keyword}</span>`)}</div>`;
             dropdown.appendChild(div);
         });
         dropdown.style.display = 'block';
@@ -310,7 +352,13 @@
         recents.forEach((item, index) => {
             const div = document.createElement('div');
             div.className = 'dropdown-item';
-            div.innerHTML = `<div class="item-text" onmousedown="applyRecent('${item.sido}', '${item.query}')" ontouchstart="applyRecent('${item.sido}', '${item.query}')"><span class="item-tag">${item.sido}</span> ${item.query}</div><div class="item-delete" onclick="deleteRecent(${index}, event)">✕</div>`;
+            // ★ 원터치 이벤트 적용
+            div.innerHTML = `
+                <div class="item-text" onclick="fastSearch(event, '${item.sido}', '${item.query}')" ontouchend="fastSearch(event, '${item.sido}', '${item.query}')">
+                    <span class="item-tag">${item.sido}</span> ${item.query}
+                </div>
+                <div class="item-delete" onclick="fastDelete(event, ${index})" ontouchend="fastDelete(event, ${index})">✕</div>
+            `;
             dropdown.appendChild(div);
         });
         dropdown.style.display = 'block';
@@ -323,14 +371,11 @@
         if(recents.length > 7) recents.pop(); 
         localStorage.setItem('elevator_recent_searches', JSON.stringify(recents));
     }
-    function applyRecent(sido, query) { document.getElementById('sidoSelector').value = sido; document.getElementById('searchInput').value = query; executeSearch(false); }
-    function deleteRecent(index, event) { event.stopPropagation(); let recents = JSON.parse(localStorage.getItem('elevator_recent_searches') || '[]'); recents.splice(index, 1); localStorage.setItem('elevator_recent_searches', JSON.stringify(recents)); renderRecentSearches(); }
+    
     function clearAllRecent() { localStorage.removeItem('elevator_recent_searches'); renderRecentSearches(); }
     function closeDropdown() { document.getElementById('searchDropdown').style.display = 'none'; }
     document.addEventListener('click', function(event) { if (!document.getElementById('searchBar').contains(event.target)) closeDropdown(); });
 
-
-    // --- 메인 API 연동 및 로직 ---
     async function executeSearch(isLoadMore = false) {
         const query = document.getElementById('searchInput').value.trim();
         const sido = document.getElementById('sidoSelector').value; 
@@ -404,7 +449,6 @@
             
             let filteredUniqueItems = Array.from(uniqueMap.values());
             
-            // 덤웨이터 및 화물용 제외
             filteredUniqueItems = filteredUniqueItems.filter(apiItem => {
                 const type = String(apiItem.elvtrKindNm || apiItem.elvtrDivNm || "");
                 if (type.includes('덤웨이터') || type === '화물용' || (type.includes('화물용') && !type.includes('승객'))) return false;
@@ -437,7 +481,6 @@
         }
     }
 
-    // 그룹화 및 지오코딩 캐싱 처리
     function buildGlobalGroups() {
         const groupedMap = new Map();
 
@@ -497,7 +540,6 @@
 
         globalGroups = Array.from(groupedMap.values());
 
-        // 좌표가 없는 주소만 골라 캐시 확인 후 API 호출
         Promise.all(globalGroups.map(group => {
             return new Promise((resolve) => {
                 if (group.lat && group.lng) { resolve(); return; }
@@ -527,11 +569,9 @@
         });
     }
 
-    // 마커 렌더링
     function renderData() {
         let renderList = [...globalGroups];
 
-        // 정확도 가중치 정렬 
         const queryLower = lastQuery.toLowerCase();
         const keywords = queryLower.trim().split(/\s+/);
         
@@ -575,7 +615,6 @@
         
         clusterer.addMarkers(newOverlays);
         
-        // 검색 첫 페이지일 때 최상단 결과로 지도 시각적 정중앙 이동
         if(renderList.length > 0 && currentPage === 1) {
             map.setLevel(4); 
             setTimeout(() => {
@@ -621,8 +660,7 @@
         map.panTo(new kakao.maps.LatLng(groupData.lat - 0.002, groupData.lng));
     }
 
-    function handleKeyPress(e) { if (e.key === 'Enter') { document.getElementById('searchInput').blur(); executeSearch(false); } }
-    function clearSearch() { document.getElementById('searchInput').value = ''; document.getElementById('searchInput').focus(); }
+    function handleKeyPress(e) { if (e.key === 'Enter') { fastExecute(e); } }
     function closeBottomSheet() { document.getElementById('bottomSheet').classList.remove('active'); }
 
     window.onload = function() {
