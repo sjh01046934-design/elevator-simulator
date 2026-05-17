@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>승강기 검색 서비스 - 최종 고도화 버전</title>
     
-    <!-- ★ Kakao Map API에 clusterer 라이브러리 추가 -->
     <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=59f58919246c9ac3780496fc7e2c0d74&libraries=services,clusterer&autoload=false"></script>
     
     <style>
@@ -93,7 +92,7 @@
 <div class="app-container">
     <div id="map"></div>
 
-    <!-- 플로팅 액션 버튼 (GPS, 리셋) -->
+    <!-- 플로팅 액션 버튼 -->
     <div class="fab-container">
         <div class="fab-btn" onclick="resetMap()" title="초기화">🔄</div>
         <div class="fab-btn" onclick="moveToMyLocation()" title="내 위치 탐색">📍</div>
@@ -101,7 +100,7 @@
 
     <!-- 데이터 더보기 버튼 -->
     <button id="loadMoreBtn" class="load-more-btn" onclick="executeSearch(true)">
-        <span>다음 페이지 로드</span> ➕
+        <span>현재 1페이지 (결과 더보기)</span> ➕
     </button>
 
     <!-- 검색바 및 필터 영역 -->
@@ -126,11 +125,12 @@
                 <option value="경남">경남</option>
                 <option value="제주">제주</option>
             </select>
-            <input type="text" id="searchInput" placeholder="주소 또는 건물명 검색" autocomplete="off" onfocus="handleInputFocus()" oninput="handleInput()" onkeypress="handleKeyPress(event)">
+            <!-- ★ onclick을 추가하여 이미 포커스된 상태에서 클릭해도 작동하도록 수정 -->
+            <input type="text" id="searchInput" placeholder="주소 또는 건물명 검색" autocomplete="off" 
+                   onfocus="handleInputFocus()" onclick="handleInputFocus()" oninput="handleInput()" onkeypress="handleKeyPress(event)">
             <span class="icon-clear" onclick="clearSearch()">X</span>
             <span class="icon-search" onclick="executeSearch(false)">🔍</span>
             
-            <!-- 자동완성 및 최근 검색어 드롭다운 -->
             <div class="search-dropdown" id="searchDropdown"></div>
         </div>
         
@@ -162,7 +162,6 @@
                 </div>
             </div>
 
-            <!-- 편의 기능 액션 버튼 -->
             <div class="action-links">
                 <a id="btnRoadview" href="#" target="_blank" class="action-btn">🛣️ 로드뷰 보기</a>
                 <a id="btnDirections" href="#" target="_blank" class="action-btn">🧭 카카오 길찾기</a>
@@ -180,16 +179,20 @@
 
 <script>
     let map;
-    let clusterer; // 마커 클러스터러 변수 추가
+    let clusterer; 
     let geocoder; 
     
-    // 글로벌 상태 관리
+    // 글로벌 데이터 상태
     let currentPage = 1;
     let lastQuery = '';
     let lastSido = '';
-    let allElevatorsData = []; 
     
-    // 필터 상태
+    // ★ 렉 해결의 핵심! 
+    // 누적된 모든 API 원본 데이터와 캐싱된 지오코딩 좌표를 메모리에 기억합니다.
+    let allElevatorsData = []; 
+    let globalGroups = []; 
+    let geocodeCache = new Map(); 
+    
     let currentFilters = { normalOnly: false, wheelchair: false, noEscalator: false };
 
     const DEPLOY_CONFIG = { CLOUDFLARE_WORKER_URL: 'https://wild-river-017e.sjh01046934.workers.dev/?url=' };
@@ -202,14 +205,12 @@
         map = new kakao.maps.Map(container, options);
         geocoder = new kakao.maps.services.Geocoder(); 
 
-        // ★ 마커 클러스터러 초기화
         clusterer = new kakao.maps.MarkerClusterer({
             map: map,
             averageCenter: true,
-            minLevel: 7 // 지도 레벨이 7 이상일 때부터 클러스터링 활성화
+            minLevel: 7 
         });
 
-        // 클러스터 클릭 시 확대 이벤트
         kakao.maps.event.addListener(clusterer, 'clusterclick', function(cluster) {
             var level = map.getLevel() - 2;
             map.setLevel(level, {anchor: cluster.getCenter()});
@@ -221,21 +222,20 @@
         });
     }
 
-    // --- 내 위치 및 초기화 기능 ---
+    // --- 유틸 기능 (리셋, 위치탐색) ---
     function resetMap() {
         document.getElementById('searchInput').value = '';
         closeBottomSheet();
         closeDropdown();
         
         allElevatorsData = [];
-        clusterer.clear(); // 맵에서 마커 전체 삭제
+        globalGroups = [];
+        clusterer.clear(); 
         document.getElementById('loadMoreBtn').style.display = 'none';
         
-        // 필터 리셋
         currentFilters = { normalOnly: false, wheelchair: false, noEscalator: false };
         document.querySelectorAll('.filter-chip').forEach(chip => chip.classList.remove('active'));
         
-        // 초기 시점(전국)으로 복귀
         map.setCenter(new kakao.maps.LatLng(36.1, 127.7));
         map.setLevel(13);
     }
@@ -249,13 +249,11 @@
             navigator.geolocation.getCurrentPosition(function(position) {
                 var lat = position.coords.latitude;
                 var lon = position.coords.longitude;
-                var locPosition = new kakao.maps.LatLng(lat, lon);
-                
-                map.setCenter(locPosition);
-                map.setLevel(4); // 위치를 찾으면 적당히 확대
+                map.setCenter(new kakao.maps.LatLng(lat, lon));
+                map.setLevel(4); 
                 loading.style.display = 'none';
                 loading.innerText = "⏳ 데이터를 불러오는 중입니다...";
-            }, function(error) {
+            }, function() {
                 alert("GPS 위치 정보를 가져올 수 없습니다. 권한을 확인해주세요.");
                 loading.style.display = 'none';
                 loading.innerText = "⏳ 데이터를 불러오는 중입니다...";
@@ -265,7 +263,7 @@
         }
     }
 
-    // --- 필터 토글 기능 ---
+    // --- 필터 시스템 (재계산 최적화) ---
     function toggleFilter(filterKey) {
         currentFilters[filterKey] = !currentFilters[filterKey];
         const chip = document.getElementById('chip-' + filterKey);
@@ -273,11 +271,11 @@
         if (currentFilters[filterKey]) chip.classList.add('active');
         else chip.classList.remove('active');
         
-        closeBottomSheet(); // 필터 변경 시 정보창 닫기
-        applyFiltersAndProcess(); // 데이터 재처리
+        closeBottomSheet(); 
+        applyFiltersAndRender(); // 무거운 geocoding 연산 없이 즉시 렌더링만 수행!
     }
 
-    // --- 검색어 및 로컬스토리지 관련 로직 (유지) ---
+    // --- 최근 검색어 드롭다운 ---
     let debounceTimer;
 
     function handleInputFocus() {
@@ -291,10 +289,7 @@
         const sido = document.getElementById('sidoSelector').value;
         clearTimeout(debounceTimer);
 
-        if (!val) {
-            renderRecentSearches();
-            return;
-        }
+        if (!val) { renderRecentSearches(); return; }
 
         debounceTimer = setTimeout(async () => {
             try {
@@ -308,7 +303,6 @@
                 const suggestions = [...new Set(items.map(i => i.buldNm || i.buld_nm).filter(Boolean))];
                 renderAutocomplete(suggestions, val);
             } catch (error) {
-                console.error("자동완성 에러:", error);
                 document.getElementById('searchDropdown').style.display = 'none';
             }
         }, 300);
@@ -358,7 +352,7 @@
     document.addEventListener('click', function(event) { if (!document.getElementById('searchBar').contains(event.target)) closeDropdown(); });
 
 
-    // --- 메인 검색 기능 ---
+    // --- 메인 API 연동 및 로직 ---
     async function executeSearch(isLoadMore = false) {
         const query = document.getElementById('searchInput').value.trim();
         const sido = document.getElementById('sidoSelector').value; 
@@ -367,13 +361,13 @@
         closeBottomSheet();
 
         if (query === '') {
-            alert("조회할 주소나 건물명을 입력해주세요.\n(예: 강남, 판교, 해운대 등)");
+            alert("조회할 주소나 건물명을 입력해주세요.");
             return;
         }
 
         if (!isLoadMore) {
             currentPage = 1;
-            allElevatorsData = []; // 새 검색 시 데이터 초기화
+            allElevatorsData = []; 
             lastQuery = query;
             lastSido = sido;
             saveRecentSearch(sido, query);
@@ -404,43 +398,47 @@
             if (!Array.isArray(itemsBuld)) itemsBuld = [itemsBuld];
             if (!Array.isArray(itemsAddr)) itemsAddr = [itemsAddr];
 
-            const loweredQuery = lastQuery.toLowerCase();
+            // ★ 더보기 버튼 버그 픽스: 띄어쓰기를 무시하고 검색어가 모두 포함되었는지 정확하게 체크
+            const keywords = lastQuery.toLowerCase().trim().split(/\s+/);
             const isMatch = (item) => {
-                const buldNm = String(item.buldNm || item.buld_nm || "").toLowerCase();
-                const address = String(item.address1 || item.address || "").toLowerCase();
-                return buldNm.includes(loweredQuery) || address.includes(loweredQuery);
+                const b = String(item.buldNm || item.buld_nm || "").toLowerCase();
+                const a = String(item.address1 || item.address || "").toLowerCase();
+                return keywords.every(kw => b.includes(kw) || a.includes(kw));
             };
 
-            const validBuldCount = itemsBuld.filter(isMatch).length;
-            const validAddrCount = itemsAddr.filter(isMatch).length;
+            const validBuld = itemsBuld.filter(isMatch);
+            const validAddr = itemsAddr.filter(isMatch);
 
-            const hasMoreData = (validBuldCount > 0 && itemsBuld.length >= MAX_ROWS) || 
-                                (validAddrCount > 0 && itemsAddr.length >= MAX_ROWS);
+            const hasMoreData = (itemsBuld.length >= MAX_ROWS && validBuld.length > 0) || 
+                                (itemsAddr.length >= MAX_ROWS && validAddr.length > 0);
 
-            let combinedItems = [...itemsBuld, ...itemsAddr].filter(isMatch);
-
-            const allItems = [...allElevatorsData, ...combinedItems];
+            // 신규 데이터와 기존 데이터를 합쳐서 고유값 추출
+            let combinedItems = [...validBuld, ...validAddr];
             const uniqueMap = new Map();
-            allItems.forEach(item => {
+            
+            allElevatorsData.forEach(item => {
+                const elvNo = item.elevatorNo || item.elevator_no;
+                if (elvNo) uniqueMap.set(elvNo, item);
+            });
+            
+            combinedItems.forEach(item => {
                 const elvNo = item.elevatorNo || item.elevator_no;
                 if (elvNo && !uniqueMap.has(elvNo)) uniqueMap.set(elvNo, item);
             });
             
             let filteredUniqueItems = Array.from(uniqueMap.values());
             
-            document.getElementById('searchLoadingMsg').style.display = 'none';
-
-            // 덤웨이터 및 기본 화물용 1차 필터
+            // 덤웨이터 및 화물용 제외
             filteredUniqueItems = filteredUniqueItems.filter(apiItem => {
                 const type = String(apiItem.elvtrKindNm || apiItem.elvtrDivNm || "");
-                if (type.includes('덤웨이터')) return false;
-                if (type === '화물용' || (type.includes('화물용') && !type.includes('승객'))) return false;
+                if (type.includes('덤웨이터') || type === '화물용' || (type.includes('화물용') && !type.includes('승객'))) return false;
                 return true;
             });
 
             if (filteredUniqueItems.length === 0) {
+                document.getElementById('searchLoadingMsg').style.display = 'none';
                 if (isLoadMore) alert("더 이상 불러올 승강기 데이터가 없습니다.");
-                else alert(`[${lastSido}] 지역에 "${lastQuery}" (으)로 검색된 승객용 승강기가 없습니다.`);
+                else alert(`[${lastSido}] 지역에 "${lastQuery}" (으)로 검색된 결과가 없습니다.`);
                 document.getElementById('loadMoreBtn').style.display = 'none';
                 return;
             }
@@ -455,43 +453,19 @@
                 if(isLoadMore) alert("모든 검색 결과를 불러왔습니다.");
             }
 
-            // 가져온 데이터를 칩셋 조건에 맞춰 필터링 및 렌더링
-            applyFiltersAndProcess();
+            buildGlobalGroups();
 
         } catch (error) {
-            console.error("데이터 연동 실패:", error);
             document.getElementById('searchLoadingMsg').style.display = 'none';
             alert("공공데이터 서버 통신 에러가 발생했습니다.");
         }
     }
 
-    // ★ 유저가 누른 필터(칩)를 반영하여 데이터를 걸러내는 함수
-    function applyFiltersAndProcess() {
-        if (!allElevatorsData || allElevatorsData.length === 0) return;
-
-        const filteredItems = allElevatorsData.filter(apiItem => {
-            const stts = String(apiItem.elvtrSttsNm || apiItem.elvtr_stts_nm || apiItem.elvtrStts || "상태불명").trim();
-            const isOperating = !(stts.includes('정지') || stts.includes('중지') || stts.includes('불합격') || stts.includes('고장') || stts.includes('연기') || stts.includes('휴지') || stts.includes('폐기'));
-            
-            const rawType = String(apiItem.elvtrKindNm || apiItem.elvtrDivNm || "");
-            const isWheelchair = rawType.includes("장애") || rawType.includes("휠체어");
-            const isEscalator = rawType.includes("에스컬레이터") || rawType.includes("무빙워크");
-
-            // 조건 불충족 시 걸러냄
-            if (currentFilters.normalOnly && !isOperating) return false;
-            if (currentFilters.wheelchair && !isWheelchair) return false;
-            if (currentFilters.noEscalator && isEscalator) return false;
-
-            return true;
-        });
-
-        processAndRender(filteredItems);
-    }
-
-    function processAndRender(items) {
+    // ★ 렉 해결의 핵심: 데이터 그룹화 및 지오코딩 캐싱을 딱 1번만 실행!
+    function buildGlobalGroups() {
         const groupedMap = new Map();
 
-        items.forEach(apiItem => {
+        allElevatorsData.forEach(apiItem => {
             const buldNm = apiItem.buldNm || apiItem.buld_nm || "건물명 없음";
             const address = apiItem.address1 || apiItem.address || "주소 없음";
             const key = `${buldNm}_${address}`;
@@ -507,14 +481,14 @@
             }
 
             const stts = String(apiItem.elvtrSttsNm || apiItem.elvtr_stts_nm || apiItem.elvtrStts || "상태불명").trim();
-            const isOperating = !(
-                stts.includes('정지') || stts.includes('중지') || stts.includes('불합격') || 
-                stts.includes('고장') || stts.includes('연기') || stts.includes('휴지') || stts.includes('폐기')
-            );
+            const isOperating = !(stts.includes('정지') || stts.includes('중지') || stts.includes('불합격') || stts.includes('고장') || stts.includes('폐기') || stts.includes('휴지'));
             
-            let rawType = String(apiItem.elvtrKindNm || apiItem.elvtrDivNm || "").trim();
+            const rawType = String(apiItem.elvtrKindNm || apiItem.elvtrDivNm || "");
+            const isWheelchair = rawType.includes("장애") || rawType.includes("휠체어");
+            const isEscalator = rawType.includes("에스컬레이터") || rawType.includes("무빙워크");
+
             let refinedType = "승객용"; 
-            if (rawType.includes("장애") && rawType.includes("화물") && rawType.includes("승객")) refinedType = "장애/승객화물용";
+            if (isWheelchair && rawType.includes("화물") && rawType.includes("승객")) refinedType = "장애/승객화물용";
             else if (rawType.includes("에스컬레이터")) refinedType = "에스컬레이터";
             else if (rawType.includes("무빙워크")) refinedType = "무빙워크";
             else if (rawType.includes("수직") && rawType.includes("휠체어")) refinedType = "수직형휠체어리프트";
@@ -523,26 +497,17 @@
             else if (rawType.includes("소방") || rawType.includes("구조") || rawType.includes("비상")) refinedType = "소방구조용";
             else if (rawType.includes("화물") && rawType.includes("승객")) refinedType = "승객화물용";
             else if (rawType.includes("병원") || rawType.includes("침대")) refinedType = "병원용";
-            else if (rawType.includes("승객") || rawType.includes("인용")) refinedType = "승객용";
 
-            let rawWeight = String(apiItem.liveLoad || apiItem.live_load || "");
-            let weightNum = rawWeight.replace(/[^0-9]/g, ""); 
+            let weightNum = String(apiItem.liveLoad || apiItem.live_load || "").replace(/[^0-9]/g, ""); 
             let finalWeight = weightNum ? weightNum + " kg" : "-";
-
-            let rawSpeed = String(apiItem.ratedSpeed || apiItem.rated_speed || "");
-            let speedNum = rawSpeed.replace(/[^0-9.]/g, "");
+            let speedNum = String(apiItem.ratedSpeed || apiItem.rated_speed || "").replace(/[^0-9.]/g, "");
             let finalSpeed = speedNum ? speedNum + " m/min" : "-";
 
-            let rawCap = String(apiItem.prsonCnt || apiItem.personCnt || apiItem.person_cnt || apiItem.personCount || "");
-            let capNum = rawCap.replace(/[^0-9]/g, "");
+            let capNum = String(apiItem.prsonCnt || apiItem.personCnt || apiItem.person_cnt || "").replace(/[^0-9]/g, "");
             let finalCapacity = "-";
-
             if (capNum && parseInt(capNum) > 0) finalCapacity = parseInt(capNum) + "명";
             else if (weightNum && parseInt(weightNum) > 0) finalCapacity = Math.floor(parseInt(weightNum) / 75) + "명";
-
             if (refinedType === "에스컬레이터" || refinedType === "무빙워크") finalCapacity = "-";
-            
-            let rawInstallPlace = String(apiItem.installationPlace || apiItem.installation_place || "-").trim();
 
             groupedMap.get(key).elevators.push({
                 elevatorNo: apiItem.elevatorNo || apiItem.elevator_no || "번호 미상",
@@ -551,20 +516,29 @@
                 floors: apiItem.shuttleSection || apiItem.shuttle_section || "-",
                 weight: finalWeight,
                 capacity: finalCapacity,
-                installPlace: rawInstallPlace,
+                installPlace: String(apiItem.installationPlace || apiItem.installation_place || "-").trim(),
                 state: stts, 
-                isOperating: isOperating
+                isOperating: isOperating,
+                isWheelchair: isWheelchair,
+                isEscalator: isEscalator
             });
         });
 
-        const groupedDataArray = Array.from(groupedMap.values());
+        globalGroups = Array.from(groupedMap.values());
 
-        Promise.all(groupedDataArray.map(group => {
+        // 좌표가 없는 주소만 골라 캐시 확인 후 API 호출
+        Promise.all(globalGroups.map(group => {
             return new Promise((resolve) => {
-                if (group.lat && group.lng) {
-                    resolve(group);
-                    return;
+                if (group.lat && group.lng) { resolve(); return; }
+                
+                // 이전에 검색해둔 주소라면 캐시에서 바로 꺼내옴 (API 호출 방지)
+                if (geocodeCache.has(group.address)) {
+                    const coords = geocodeCache.get(group.address);
+                    group.lat = coords.lat;
+                    group.lng = coords.lng;
+                    resolve(); return;
                 }
+
                 geocoder.addressSearch(group.address, function(result, status) {
                     if (status === kakao.maps.services.Status.OK) {
                         group.lat = parseFloat(result[0].y);
@@ -573,61 +547,83 @@
                         group.lat = 36.4792 + (Math.random() - 0.5) * 0.05;
                         group.lng = 127.2892 + (Math.random() - 0.5) * 0.05;
                     }
-                    resolve(group);
+                    geocodeCache.set(group.address, {lat: group.lat, lng: group.lng});
+                    resolve();
                 });
             });
-        })).then(finalData => {
-            const queryLower = lastQuery.toLowerCase();
-            const getScore = (group) => {
-                const name = group.buildingName.toLowerCase();
-                const addr = group.address.toLowerCase();
-                let score = 0;
-                
-                if (name === queryLower) score += 1000;
-                else if (name.startsWith(queryLower)) score += 500;
-                else if (name.includes(queryLower)) score += 100;
-                
-                if (addr === queryLower) score += 1000;
-                else if (addr.startsWith(queryLower)) score += 500;
-                else if (addr.includes(queryLower)) score += 100;
-                
-                score -= name.length;
-                return score;
-            };
-
-            finalData.sort((a, b) => getScore(b) - getScore(a));
-            renderMarkers(finalData);
+        })).then(() => {
+            document.getElementById('searchLoadingMsg').style.display = 'none';
+            applyFiltersAndRender();
         });
     }
 
-    function renderMarkers(dataArray) {
-        clusterer.clear(); // 기존 마커 전체 지우기
+    // 필터 버튼 클릭 시 호출 (캐시된 데이터를 즉시 필터링하여 매우 빠름)
+    function applyFiltersAndRender() {
+        let renderList = [];
+        
+        globalGroups.forEach(group => {
+            const filteredElvs = group.elevators.filter(elv => {
+                if (currentFilters.normalOnly && !elv.isOperating) return false;
+                if (currentFilters.wheelchair && !elv.isWheelchair) return false;
+                if (currentFilters.noEscalator && elv.isEscalator) return false;
+                return true;
+            });
+
+            if (filteredElvs.length > 0) {
+                renderList.push({ ...group, elevators: filteredElvs });
+            }
+        });
+
+        // 정확도 가중치 정렬 로직 (이전과 동일)
+        const queryLower = lastQuery.toLowerCase();
+        const keywords = queryLower.trim().split(/\s+/);
+        
+        const getScore = (g) => {
+            const name = g.buildingName.toLowerCase();
+            const addr = g.address.toLowerCase();
+            let score = 0;
+            
+            keywords.forEach(kw => {
+                if (name === kw) score += 1000;
+                else if (name.startsWith(kw)) score += 500;
+                else if (name.includes(kw)) score += 100;
+                
+                if (addr === kw) score += 1000;
+                else if (addr.startsWith(kw)) score += 500;
+                else if (addr.includes(kw)) score += 100;
+            });
+            score -= name.length;
+            return score;
+        };
+
+        renderList.sort((a, b) => getScore(b) - getScore(a));
+        
+        clusterer.clear(); 
         let newOverlays = [];
 
-        dataArray.forEach(group => {
+        renderList.forEach(group => {
             const isAllStopped = group.elevators.every(e => !e.isOperating);
             
             const content = document.createElement('div');
             content.className = isAllStopped ? 'custom-marker stopped' : 'custom-marker';
             content.innerHTML = markerSvgIcon + `<span>${group.buildingName} (${group.elevators.length}대)</span>`;
-            
             content.onclick = function() { openBottomSheet(group); };
 
-            const customOverlay = new kakao.maps.CustomOverlay({
+            newOverlays.push(new kakao.maps.CustomOverlay({
                 position: new kakao.maps.LatLng(group.lat, group.lng),
                 content: content,
                 yAnchor: 1
-            });
-            
-            newOverlays.push(customOverlay);
+            }));
         });
         
-        // ★ 생성된 마커(오버레이)들을 클러스터러에 한 번에 추가
         clusterer.addMarkers(newOverlays);
         
-        if(dataArray.length > 0 && currentPage === 1) {
-            map.setCenter(new kakao.maps.LatLng(dataArray[0].lat, dataArray[0].lng));
+        // 검색 첫 페이지일 때 최상단 결과로 지도 이동
+        if(renderList.length > 0 && currentPage === 1) {
+            map.setCenter(new kakao.maps.LatLng(renderList[0].lat, renderList[0].lng));
             map.setLevel(4); 
+        } else if (renderList.length === 0) {
+            alert("선택한 필터 조건에 맞는 승강기가 없습니다.");
         }
     }
 
@@ -636,7 +632,6 @@
         document.getElementById('resAddress').innerText = groupData.address;
         document.getElementById('resTotalCount').innerText = `(${groupData.elevators.length}대)`;
 
-        // ★ 로드뷰 및 길찾기 버튼 링크 연동
         document.getElementById('btnRoadview').href = `https://map.kakao.com/link/roadview/${groupData.lat},${groupData.lng}`;
         document.getElementById('btnDirections').href = `https://map.kakao.com/link/to/${encodeURIComponent(groupData.buildingName)},${groupData.lat},${groupData.lng}`;
 
@@ -646,9 +641,7 @@
         groupData.elevators.forEach((elv, index) => {
             const stateColor = elv.isOperating ? "#1e4e79" : "#d32f2f";
             let displayStateText = elv.state;
-            if (elv.isOperating && (elv.state === "합격" || elv.state === "상태불명")) {
-                displayStateText = "정상운행";
-            }
+            if (elv.isOperating && (elv.state === "합격" || elv.state === "상태불명")) displayStateText = "정상운행";
 
             const tableHtml = `
                 <div class="elv-item-title">
@@ -668,31 +661,15 @@
         });
 
         document.getElementById('bottomSheet').classList.add('active');
-        
-        // 마커 클릭 시 화면을 약간 올려서 바텀 시트와 겹치지 않게 조절
         map.panTo(new kakao.maps.LatLng(groupData.lat - 0.002, groupData.lng));
     }
 
-    function handleKeyPress(e) { 
-        if (e.key === 'Enter') { 
-            document.getElementById('searchInput').blur(); 
-            executeSearch(false); 
-        } 
-    }
-    
-    function clearSearch() { 
-        document.getElementById('searchInput').value = ''; 
-        document.getElementById('searchInput').focus();
-    }
-    
-    function closeBottomSheet() {
-        document.getElementById('bottomSheet').classList.remove('active');
-    }
+    function handleKeyPress(e) { if (e.key === 'Enter') { document.getElementById('searchInput').blur(); executeSearch(false); } }
+    function clearSearch() { document.getElementById('searchInput').value = ''; document.getElementById('searchInput').focus(); }
+    function closeBottomSheet() { document.getElementById('bottomSheet').classList.remove('active'); }
 
     window.onload = function() {
-        kakao.maps.load(function() {
-            initMap();
-        });
+        kakao.maps.load(function() { initMap(); });
     };
 </script>
 
