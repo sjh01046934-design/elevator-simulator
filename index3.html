@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>승강기 검색 서비스 - 실무 현장용</title>
+    <title>승강기 검색 서비스 - 설치위치 반영</title>
     
     <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=59f58919246c9ac3780496fc7e2c0d74&libraries=services&autoload=false"></script>
     
@@ -48,10 +48,10 @@
 
         .elv-item-title { font-size: 13px; font-weight: bold; color: #444; margin-top: 10px; margin-bottom: 4px; display: flex; justify-content: space-between;}
         
-        .data-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: center; border: 1px solid #d2d2d2; margin-bottom: 12px; background: white; }
-        .data-table th, .data-table td { border: 1px solid #d2d2d2; padding: 6px 4px; }
-        .data-table th { background-color: #f8fafc; color: #444; font-weight: bold; width: 23%; }
-        .data-table td { font-weight: 500; color: #111; width: 27%; }
+        .data-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: center; border: 1px solid #d2d2d2; margin-bottom: 12px; background: white; table-layout: fixed; }
+        .data-table th, .data-table td { border: 1px solid #d2d2d2; padding: 6px 4px; word-break: keep-all; }
+        .data-table th { background-color: #f8fafc; color: #444; font-weight: bold; width: 20%; }
+        .data-table td { font-weight: 500; color: #111; width: 30%; }
         
         .custom-marker { background-color: #1e4e79; color: white; padding: 4px 7px; border-radius: 6px; font-size: 11.5px; font-weight: bold; box-shadow: 0 3px 6px rgba(0,0,0,0.3); position: relative; white-space: nowrap; cursor: pointer; bottom: 20px; display: flex; align-items: center; gap: 4px; border: 1px solid rgba(255,255,255,0.4); transition: transform 0.1s; }
         .custom-marker:active { transform: scale(0.95); }
@@ -124,8 +124,7 @@
             
             <div id="elevatorListContainer" class="elevator-list-scroll">
                 </div>
-
-            </div>
+        </div>
     </div>
 </div>
 
@@ -269,6 +268,9 @@
                 else if (weightNum && parseInt(weightNum) > 0) finalCapacity = Math.floor(parseInt(weightNum) / 75) + "명";
 
                 if (refinedType === "에스컬레이터" || refinedType === "무빙워크") finalCapacity = "-";
+                
+                // ★ 설치위치 파싱 (API 원본 데이터 무수정 추출)
+                let rawInstallPlace = String(apiItem.installationPlace || apiItem.installation_place || "-").trim();
 
                 groupedMap.get(key).elevators.push({
                     elevatorNo: apiItem.elevatorNo || apiItem.elevator_no || "번호 미상",
@@ -277,6 +279,7 @@
                     floors: apiItem.shuttleSection || apiItem.shuttle_section || "-",
                     weight: finalWeight,
                     capacity: finalCapacity,
+                    installPlace: rawInstallPlace, // 객체에 설치위치 추가
                     state: stts, 
                     isOperating: isOperating
                 });
@@ -357,6 +360,7 @@
                 displayStateText = "정상운행";
             }
 
+            // ★ HTML 테이블 구조에 설치위치 항목 추가 (임의 수정 없이 ${elv.installPlace} 원본 노출)
             const tableHtml = `
                 <div class="elv-item-title">
                     <span>#${index + 1} 호기 <span style="font-weight:normal; color:#777;">(${elv.elevatorNo})</span></span>
@@ -365,7 +369,10 @@
                 <table class="data-table">
                     <tr><th>승강기종류</th><td style="font-weight:bold;">${elv.type}</td><th>운행층수</th><td>${elv.floors}</td></tr>
                     <tr><th>정격속도</th><td>${elv.speed}</td><th>적재하중</th><td>${elv.weight}</td></tr>
-                    <tr><th>최대정원</th><td colspan="3" style="font-weight:bold; color:#1e4e79; background:#f8fafc;">${elv.capacity}</td></tr>
+                    <tr>
+                        <th>최대정원</th><td style="font-weight:bold; color:#1e4e79; background:#f8fafc;">${elv.capacity}</td>
+                        <th>설치위치</th><td style="font-size:11px; text-align:left; padding-left:6px;">${elv.installPlace}</td>
+                    </tr>
                 </table>
             `;
             listContainer.innerHTML += tableHtml;
