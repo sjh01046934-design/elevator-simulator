@@ -188,6 +188,7 @@
     document.addEventListener('touchmove', function() { isTouchMoved = true; }, {passive: true});
 
     let currentAbortController = null; 
+    let backgroundSyncController = null; // 백그라운드 레이더 스캐너 제어용
 
     // Cloudflare Worker 주소
     const DEPLOY_CONFIG = { CLOUDFLARE_WORKER_URL: 'https://wild-river-017e.sjh01046934.workers.dev/?url=' };
@@ -295,8 +296,12 @@
         if (currentAbortController) {
             currentAbortController.abort();
             currentAbortController = null;
-            hideLoadingMsg();
         }
+        if (backgroundSyncController) {
+            backgroundSyncController.abort();
+            backgroundSyncController = null;
+        }
+        hideLoadingMsg();
     }
 
     function fastSearch(event, sido, query, type) {
@@ -389,7 +394,6 @@
     function closeDropdown() { document.getElementById('searchDropdown').style.display = 'none'; }
     document.addEventListener('click', function(event) { if (!document.getElementById('searchBar').contains(event.target)) closeDropdown(); });
 
-
     // =========================================================
     // ★ [모드 1] 상호/장소 (카카오 리스트업 -> 해당 건물 전체 탐색)
     // =========================================================
@@ -437,20 +441,15 @@
         dropdown.style.display = 'block';
     }
 
-    // ★ 번지수 파싱 (문자열에서 본번과 부번 추출)
     function parseAddressNumber(str) {
         if (!str) return null;
         let match = str.match(/([0-9]+)(?:-([0-9]+))?/);
         if (match) {
-            return {
-                main: parseInt(match[1], 10),
-                sub: match[2] ? parseInt(match[2], 10) : 0
-            };
+            return { main: parseInt(match[1], 10), sub: match[2] ? parseInt(match[2], 10) : 0 };
         }
         return null;
     }
 
-    // ★ 텍스트 전체에서 특정 도로명 뒤에 오는 번지수를 정교하게 추출하는 함수
     function extractAddressNumber(fullAddr, roadName) {
         if (!roadName || !fullAddr) return null;
         const escapedRoad = roadName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
@@ -458,10 +457,7 @@
         const match = fullAddr.match(regex);
         
         if (match) {
-            return {
-                main: parseInt(match[1], 10),
-                sub: match[2] ? parseInt(match[2], 10) : 0
-            };
+            return { main: parseInt(match[1], 10), sub: match[2] ? parseInt(match[2], 10) : 0 };
         }
         return null;
     }
@@ -484,7 +480,6 @@
             let targetAddress1 = "";
             let targetAddress2 = "";
 
-            // 카카오 주소에서 번지수와 도로명 분리
             let words = address.trim().split(/\s+/);
             for (let i = words.length - 1; i >= 0; i--) {
                 if (/\d/.test(words[i])) { 
@@ -543,23 +538,17 @@
                 }
             }
             
-            // ★ 카카오에서 찾은 타겟 번지수 파싱 
             const targetNum = parseAddressNumber(targetAddress2); 
             
             let validItems = combinedItems.filter(item => {
                 let fullStr = (String(item.address1 || "") + " " + String(item.address2 || "")).trim();
-                
-                // ★ [버그 완벽 수정] 1단계: 검색한 도로명(예: 도움8로)이 데이터에 없으면 무조건 탈락 (누리1로 원천 차단)
                 if (!fullStr.includes(targetAddress1)) return false;
 
-                // 2단계: 해당 도로명 바로 뒤에 붙은 번지수를 정확히 추출하여 일치 확인
                 let apiNum = extractAddressNumber(fullStr, targetAddress1);
-
                 if (targetNum && apiNum) {
                     return (targetNum.main === apiNum.main) && (targetNum.sub === apiNum.sub);
                 }
                 
-                // 극단적인 예외 텍스트일 경우의 마지막 방어선
                 if (targetNum) {
                     let tokenRegex = new RegExp("\\b" + targetNum.main + "\\b");
                     if (!tokenRegex.test(fullStr)) return false; 
@@ -573,7 +562,6 @@
                         return true;
                     }
                 }
-
                 return fullStr.includes(targetAddress2);
             });
 
@@ -620,7 +608,7 @@
 
 
     // =========================================================
-    // ★ [모드 2, 3] 건물명 / 주소 (공공데이터 전체 탐색 + 3배 병렬 통신)
+    // ★ [모드 2, 3] 건물명 / 주소 (공공데이터 전체 탐색 + 병렬 통신)
     // =========================================================
     async function executeBroadSearch() {
         const query = document.getElementById('searchInput').value.trim();
@@ -755,7 +743,7 @@
 
 
     // =========================================================
-    // ★ 공통 UI 랜더링 (마커 및 바텀시트)
+    // ★ 공통 UI 랜더링 및 뷰포트 레이더 스캐너
     // =========================================================
     function buildGlobalGroups() {
         const groupedMap = new Map();
@@ -778,7 +766,7 @@
             }
 
             const stts = String(apiItem.elvtrSttsNm || apiItem.elvtr_stts_nm || apiItem.elvtrStts || "상태불명").trim();
-            const isOperating = !(stts.includes('정지') || stts.includes('중지') || stts.includes('불합격') || stts.includes('고장') || stts.includes('폐기') || stts.includes('휴지'));
+            const isOperating = !(stts.includes('정지') || stts.includes('중지') || stts.includes('불합격') || stts.includes('고장') || stts.includes('폐기') || stts.includes('휴지') || stts.includes('검사연기') || stts.includes('폐지'));
             
             const rawType = String(apiItem.elvtrKindNm || apiItem.elvtrDivNm || "");
             let refinedType = "승객용"; 
@@ -812,7 +800,8 @@
                 capacity: finalCapacity,
                 installPlace: String(apiItem.installationPlace || apiItem.installation_place || "-").trim(),
                 state: stts, 
-                isOperating: isOperating
+                isOperating: isOperating,
+                scanned: false // 백그라운드 탐색용 초기 꼬리표
             });
         });
 
@@ -841,10 +830,11 @@
             });
         })).then(() => {
             renderData();
+            startBackgroundSync(); // 스캐너 가동!
         });
     }
 
-    function renderData() {
+    function renderData(isBackgroundUpdate = false) {
         let renderList = [...globalGroups];
 
         const queryLower = lastQuery.replace(/\s+/g, '').toLowerCase();
@@ -871,10 +861,18 @@
         let usedCoords = new Set(); 
 
         renderList.forEach(group => {
-            const isAllStopped = group.elevators.every(e => !e.isOperating);
+            const stoppedCount = group.elevators.filter(e => !e.isOperating).length;
+            const isAllStopped = group.elevators.length > 0 && stoppedCount === group.elevators.length;
+            
             const content = document.createElement('div');
             content.className = isAllStopped ? 'custom-marker stopped' : 'custom-marker';
-            content.innerHTML = markerSvgIcon + `<span>${group.buildingName} (${group.elevators.length}대)</span>`;
+            
+            let stopBadge = '';
+            if (stoppedCount > 0) {
+                stopBadge = `<span style="background: white; color: #d32f2f; padding: 2px 5px; border-radius: 4px; margin-left: 6px; font-size: 11px; font-weight: 900; box-shadow: 0 1px 3px rgba(0,0,0,0.3);">정지/휴지 ${stoppedCount}대</span>`;
+            }
+
+            content.innerHTML = markerSvgIcon + `<span>${group.buildingName} (${group.elevators.length}대)</span>` + stopBadge;
             
             content.onclick = function(event) { 
                 if (event) event.stopPropagation();
@@ -904,17 +902,19 @@
         
         clusterer.addMarkers(newOverlays);
         
-        if (renderList.length === 1) {
-            map.setLevel(5); 
-            setTimeout(() => { map.panTo(new kakao.maps.LatLng(renderList[0].lat, renderList[0].lng)); }, 100);
-        } else if (renderList.length > 1) {
-            let bounds = new kakao.maps.LatLngBounds();
-            newOverlays.forEach(overlay => { bounds.extend(overlay.getPosition()); });
-            setTimeout(() => { map.setBounds(bounds); }, 100);
-        } 
+        if (!isBackgroundUpdate) {
+            if (renderList.length === 1) {
+                map.setLevel(5); 
+                setTimeout(() => { map.panTo(new kakao.maps.LatLng(renderList[0].lat, renderList[0].lng)); }, 100);
+            } else if (renderList.length > 1) {
+                let bounds = new kakao.maps.LatLngBounds();
+                newOverlays.forEach(overlay => { bounds.extend(overlay.getPosition()); });
+                setTimeout(() => { map.setBounds(bounds); }, 100);
+            } 
+        }
     }
 
-    function openBottomSheet(groupData) {
+    async function openBottomSheet(groupData) {
         document.getElementById('resBuildingName').innerText = groupData.buildingName;
         document.getElementById('resAddress').innerText = groupData.address;
         document.getElementById('resTotalCount').innerText = `(${groupData.elevators.length}대)`;
@@ -923,17 +923,50 @@
         document.getElementById('btnDirections').href = `https://map.kakao.com/link/to/${encodeURIComponent(groupData.buildingName)},${groupData.lat},${groupData.lng}`;
 
         const listContainer = document.getElementById('elevatorListContainer');
-        listContainer.innerHTML = ''; 
+        listContainer.innerHTML = '<div style="text-align:center; padding: 20px; color:#1e4e79;">⏳ 정부 데이터 실시간 연동 중...</div>'; 
 
-        groupData.elevators.forEach((elv, index) => {
-            const stateColor = elv.isOperating ? "#1e4e79" : "#d32f2f";
+        document.getElementById('bottomSheet').classList.add('active');
+        map.panTo(new kakao.maps.LatLng(groupData.lat - 0.002, groupData.lng));
+
+        let htmlContent = '';
+        let markerNeedsUpdate = false;
+
+        for (let index = 0; index < groupData.elevators.length; index++) {
+            const elv = groupData.elevators[index];
             let displayStateText = elv.state;
-            if (elv.isOperating && (elv.state === "합격" || elv.state === "상태불명")) displayStateText = "정상운행";
+            let isOperating = elv.isOperating;
+
+            // 스캔되지 않았다면 클릭 시 최우선 실시간 조회 (서버 인메모리 캐시 연동)
+            if (!elv.scanned) {
+                try {
+                    const safeElevatorNo = String(elv.elevatorNo).trim().padStart(7, '0');
+                    const res = await fetch(`/api/realtime-status?elevatorNo=${safeElevatorNo}`);
+                    const data = await res.json();
+                    displayStateText = data.status;
+
+                    isOperating = !(displayStateText.includes('정지') || displayStateText.includes('중지') || displayStateText.includes('불합격') || displayStateText.includes('고장') || displayStateText.includes('휴지') || displayStateText.includes('폐기') || displayStateText.includes('검사연기') || displayStateText.includes('폐지'));
+                    
+                    elv.scanned = true;
+
+                    if (elv.isOperating !== isOperating || elv.state !== displayStateText) {
+                        elv.isOperating = isOperating;
+                        elv.state = displayStateText;
+                        markerNeedsUpdate = true;
+                    }
+                } catch(e) {
+                    displayStateText = "통신오류";
+                }
+            }
+
+            const stateColor = isOperating ? "#1e4e79" : "#d32f2f";
+            if (isOperating && (displayStateText === "합격" || displayStateText === "상태불명" || displayStateText.includes("정상") || displayStateText === "상태알수없음")) {
+                displayStateText = "정상운행";
+            }
 
             const tableHtml = `
                 <div class="elv-item-title">
                     <span>#${index + 1} 호기 <span style="font-weight:normal; color:#777;">(${elv.elevatorNo})</span></span>
-                    <span style="color:${stateColor}; font-size:12px;">[${displayStateText}]</span>
+                    <span style="color:${stateColor}; font-size:12px; font-weight:900;">[${displayStateText}]</span>
                 </div>
                 <table class="data-table">
                     <tr><th>승강기종류</th><td style="font-weight:bold;">${elv.type}</td><th>운행층수</th><td>${elv.floors}</td></tr>
@@ -944,14 +977,89 @@
                     </tr>
                 </table>
             `;
-            listContainer.innerHTML += tableHtml;
-        });
+            htmlContent += tableHtml;
+        }
 
-        document.getElementById('bottomSheet').classList.add('active');
-        map.panTo(new kakao.maps.LatLng(groupData.lat - 0.002, groupData.lng));
+        listContainer.innerHTML = htmlContent;
+        if (markerNeedsUpdate) {
+            renderData(true);
+        }
     }
 
     function closeBottomSheet() { document.getElementById('bottomSheet').classList.remove('active'); }
+
+    // =========================================================
+    // 🚀 화면 뷰포트 기반 백그라운드 레이더 스캐너 (마법 적용)
+    // =========================================================
+    async function startBackgroundSync() {
+        if (backgroundSyncController) backgroundSyncController.abort();
+        backgroundSyncController = new AbortController();
+        const signal = backgroundSyncController.signal;
+
+        while (!signal.aborted) {
+            let targetGroup = null;
+            let targetElv = null;
+            
+            // 현재 화면의 좌표 경계 확인
+            const bounds = map.getBounds();
+
+            // 1순위: 화면 안에 보이고 + 아직 스캔 안 된 승강기 탐색
+            for (let group of globalGroups) {
+                if (group.lat && group.lng) {
+                    let pos = new kakao.maps.LatLng(group.lat, group.lng);
+                    if (bounds.contain(pos)) {
+                        targetElv = group.elevators.find(e => !e.scanned);
+                        if (targetElv) {
+                            targetGroup = group;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // 2순위: 화면 안쪽이 다 끝나면 화면 밖의 스캔 안 된 녀석들 탐색
+            if (!targetElv) {
+                for (let group of globalGroups) {
+                    targetElv = group.elevators.find(e => !e.scanned);
+                    if (targetElv) {
+                        targetGroup = group;
+                        break;
+                    }
+                }
+            }
+
+            // 모든 검사가 끝났다면 잠시 대기
+            if (!targetElv) {
+                await new Promise(r => setTimeout(r, 2000));
+                continue; 
+            }
+
+            // 타겟을 찾았으면 서버 캐싱 API 호출
+            try {
+                const safeElevatorNo = String(targetElv.elevatorNo).trim().padStart(7, '0');
+                const res = await fetch(`/api/realtime-status?elevatorNo=${safeElevatorNo}`, { signal });
+                const data = await res.json();
+                const stts = data.status;
+                
+                targetElv.scanned = true; 
+                
+                const isOperating = !(stts.includes('정지') || stts.includes('중지') || stts.includes('불합격') || stts.includes('고장') || stts.includes('휴지') || stts.includes('폐기') || stts.includes('검사연기') || stts.includes('폐지'));
+                
+                // 상태가 기존과 다르면 화면 흔들림 없이 업데이트
+                if (targetElv.isOperating !== isOperating || targetElv.state !== stts) {
+                    targetElv.isOperating = isOperating;
+                    targetElv.state = stts;
+                    renderData(true); 
+                }
+            } catch(e) {
+                if (e.name === 'AbortError') return; 
+                targetElv.scanned = true; 
+            }
+            
+            // 트래픽 분산을 위한 0.1초 딜레이
+            await new Promise(r => setTimeout(r, 100)); 
+        }
+    }
 
     window.onload = function() {
         kakao.maps.load(function() { initMap(); });
