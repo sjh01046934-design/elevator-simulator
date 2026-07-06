@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>승강기 지도 - 승강기 설치유무검색서비스</title>
+    <title>엘리맵 - 승강기 설치유무검색서비스</title>
     
     <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=59f58919246c9ac3780496fc7e2c0d74&libraries=services,clusterer&autoload=false"></script>
     
@@ -91,8 +91,8 @@
 
     <div class="search-bar-wrapper">
         <div class="page-header">
-            <h1>승강기 지도</h1>
-            <p>승강기 설치유무검색서비스 (세종지사)</p>
+            <h1>엘리맵</h1>
+            <p>승강기 설치유무검색서비스</p>
         </div>
         
         <div class="search-bar" id="searchBar">
@@ -117,9 +117,9 @@
             </select>
             
             <select id="searchType" class="sido-select" style="margin-right:8px; color:#555;" onchange="document.getElementById('searchInput').focus()">
-                <option value="place" selected>상호/장소</option>
-                <option value="building">건물/아파트명</option>
-                <option value="address">도로명/지번</option>
+                <option value="place" selected>상호명</option>
+                <option value="building">건물명</option>
+                <option value="address">주소</option>
             </select>
 
             <input type="text" id="searchInput" placeholder="검색어 입력" autocomplete="off" 
